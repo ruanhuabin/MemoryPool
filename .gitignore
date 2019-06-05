@@ -1,6 +1,13 @@
+Debug/*
+*vcxproj*
+*.dat
+.vs
+*.sln
 a.out
 readpack*
 *.txt
 *.dat
 cscope*
 tags
+mprepo/*
+*.bak
