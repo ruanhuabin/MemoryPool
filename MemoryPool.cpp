@@ -21,10 +21,6 @@ void checkResult(const float* expect, VirtualMemory<float>& mp, const size_t n)
 	size_t cnt = 0;
 	for (size_t i = 0; i < n; i++)
 	{
-		if (i == 2462)
-		{
-			printf("There is something wrong happened\n");
-		}
 		float real = mp(i);
 		float error = fabsf(expect[i] - real);
 		if (fabsf(error) >= 10e-6)
@@ -73,10 +69,14 @@ int main(int argc, char* argv[])
 
 
 	printf("Start to run the program\n");
+	/*size_t wayNum = 1;
+	size_t waySize = 1;
+	size_t packSize = 2;
+	int threadNum = 2;*/
 	size_t wayNum = 4;
-	size_t waySize = 1000;
-	size_t packSize = 512;
-	int threadNum = 12;
+	size_t waySize = 10;
+	size_t packSize = 16;
+	int threadNum = 1;
 	VirtualMemory<float> mp(wayNum, waySize, packSize, threadNum);
 	mp.setRank(0);	
 	omp_set_num_threads(threadNum);

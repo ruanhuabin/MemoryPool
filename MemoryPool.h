@@ -117,15 +117,19 @@ public:
 
 		//thread_pack_info_t* threadPackInfo = mp->getThreadPackInfo();
 		/*size_t threadNum = mp->getOMPThreadNum();*/
+		threadPackInfo[threadID].lastPackStartIndex = MAX_SCRIPT_INDEX;
+		threadPackInfo[threadID].lastPackLogicID = MAX_SCRIPT_INDEX;
 		threadPackInfo[threadID].lastPackRowID = MAX_SCRIPT_INDEX;
 		threadPackInfo[threadID].lastPackWayID = MAX_SCRIPT_INDEX;
-		threadPackInfo[threadID].lastPackStartIndex = MAX_SCRIPT_INDEX;
 		threadPackInfo[threadID].lastPackType = RAW;
 
+		threadPackInfo[threadID].prePackStartIndex = MAX_SCRIPT_INDEX;
+		threadPackInfo[threadID].prePackLogicID = MAX_SCRIPT_INDEX;
 		threadPackInfo[threadID].prePackWayID = MAX_SCRIPT_INDEX;
 		threadPackInfo[threadID].prePackRowID = MAX_SCRIPT_INDEX;
-		threadPackInfo[threadID].prePackStartIndex = MAX_SCRIPT_INDEX;
 		threadPackInfo[threadID].prePackType = RAW;
+
+		
 		
 
 	}
@@ -422,13 +426,13 @@ public:
 
 	void lockPackByRefCnt(const pack_t &pack)
 	{
-		#pragma omp critical
+		#pragma omp critical(lockRef)
 		{
 			while (_packState[pack.wayID][pack.rowID].refCnt != 0)
 			{
 				static size_t cnt = 0;
 				cnt ++;
-				if(cnt % 100 == 0)
+				if(cnt % 2 == 0)
 				{
 					printf("wait for lock by thread: %d, refcnt = %d\n", omp_get_thread_num(), _packState[pack.wayID][pack.rowID].refCnt);
 				}
@@ -444,14 +448,17 @@ public:
 		//#pragma omp atomic
 		//_packState[packWayID][packRowID].refCnt --;
 
-        #pragma omp critical
+        #pragma omp critical(unlockRef)
         {
-		    _packState[packWayID][packRowID].refCnt --;
+		    //_packState[packWayID][packRowID].refCnt --;
+		    _packState[packWayID][packRowID].refCnt = 0;
             if(_packState[packWayID][packRowID].refCnt < 0)
             {
                 printf("Reference cnt was negtative by thread: %d, refCnt = %d\n", omp_get_thread_num(), _packState[packWayID][packRowID].refCnt);
             }
         }
+
+		//_packState[packWayID][packRowID].refCnt = 0;
 	}
 
 	
@@ -670,6 +677,10 @@ public:
 	TYPE& operator()(size_t i)
 	{
 		size_t threadID = omp_get_thread_num();
+		if (threadID == 1)
+		{
+			printf("threadID 1 is running\n");
+		}
 		pack_t currPack;
 		/*这个函数内部会保存_threadPackInfo[threadID]相关的信息*/
 		getPackByUnpackIndex(currPack, i);
