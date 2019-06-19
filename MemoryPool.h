@@ -11,6 +11,7 @@
 #include <string>
 #include <limits>
 #include <map>
+#include <set>
 #include <fstream>
 #include <iostream>
 
@@ -47,6 +48,7 @@ typedef struct pack_state
 	/*size_t lastOpThreadID;
 	size_t lastLockThreadID;*/
 	int refCnt;
+	set<size_t> accessRefCnt;
 }pack_state_t;
 
 typedef struct pack_t
@@ -129,6 +131,9 @@ public:
 		threadPackInfo[threadID].prePackRowID = MAX_SCRIPT_INDEX;
 		threadPackInfo[threadID].prePackType = RAW;
 
+
+		pack_state_t** packState = mp->getPackState();
+		packState[wayID][rowID].accessRefCnt.clear();
 		
 		
 
@@ -169,6 +174,11 @@ public:
 	thread_pack_info_t* getThreadPackInfo()
 	{
 		return _threadPackInfo;
+	}
+	
+	pack_state_t** getPackState()
+	{
+		return _packState;
 	}
 
 	pack_state_t** getPackIndexTag()
@@ -424,9 +434,23 @@ public:
 		fclose(fp);
 	}
 
+	void printAccessRefCnt(const pack_t &pack)
+	{
+		set<size_t>::iterator it;
+
+		size_t threadID = omp_get_thread_num();
+		static size_t cnt = 0;
+		printf("thread ID: %lu , cnt = %lu, is waiting lock, accessRefCnt = %lu, thread ID list is: ", threadID, ++cnt, _packState[pack.wayID][pack.rowID].accessRefCnt.size());
+		for (it = _packState[pack.wayID][pack.rowID].accessRefCnt.begin(); it != _packState[pack.wayID][pack.rowID].accessRefCnt.end(); it++)
+		{
+			printf("%lu ", *it);
+		}
+		printf("\n");
+	
+	}
 	void lockPackByRefCnt(const pack_t &pack)
 	{
-		#pragma omp critical(lockRef)
+		/*#pragma omp critical(lockRef)
 		{
 			while (_packState[pack.wayID][pack.rowID].refCnt != 0)
 			{
@@ -439,6 +463,27 @@ public:
 
 			}
 			_packState[pack.wayID][pack.rowID].refCnt++;
+		}*/
+
+		size_t threadID = omp_get_thread_num();
+		#pragma omp critical(lockRef)
+		{
+			bool b1 = _packState[pack.wayID][pack.rowID].accessRefCnt.size() != 0;
+			size_t elementNum = _packState[pack.wayID][pack.rowID].accessRefCnt.size();
+			bool b2 = false;
+			if (b1 && elementNum == 1)
+			{
+
+				b2 = (threadID != *(_packState[pack.wayID][pack.rowID].accessRefCnt.begin()));
+                 
+			}
+			while (b1 && b2)
+			{
+				printf("b1 = %d, b2 = %d\n", b1, b2);
+				printAccessRefCnt(pack);
+			}
+			_packState[pack.wayID][pack.rowID].accessRefCnt.insert(threadID);
+			
 		}
 		
 	}
@@ -448,17 +493,21 @@ public:
 		//#pragma omp atomic
 		//_packState[packWayID][packRowID].refCnt --;
 
-        #pragma omp critical(unlockRef)
-        {
-		    //_packState[packWayID][packRowID].refCnt --;
-		    _packState[packWayID][packRowID].refCnt = 0;
-            if(_packState[packWayID][packRowID].refCnt < 0)
-            {
-                printf("Reference cnt was negtative by thread: %d, refCnt = %d\n", omp_get_thread_num(), _packState[packWayID][packRowID].refCnt);
-            }
-        }
+      //  #pragma omp critical(unlockRef)
+      //  {
+		    ////_packState[packWayID][packRowID].refCnt --;
+		    //_packState[packWayID][packRowID].refCnt = 0;
+      //      if(_packState[packWayID][packRowID].refCnt < 0)
+      //      {
+      //          printf("Reference cnt was negtative by thread: %d, refCnt = %d\n", omp_get_thread_num(), _packState[packWayID][packRowID].refCnt);
+      //      }
+      //  }
 
-		//_packState[packWayID][packRowID].refCnt = 0;
+		#pragma omp critical(unlockRef)
+		{
+			size_t threadID = omp_get_thread_num();
+			_packState[packWayID][packRowID].accessRefCnt.erase(threadID);
+		}
 	}
 
 	
@@ -672,6 +721,12 @@ public:
 
 			}
 		}
+
+		/*
+		记录一下当前这个pack都有哪些线程在访问，这样在替换的时候，要保证这个pack没有任何线程对其进行访问，这样才能够进行替换。
+
+		*/
+		_packState[pack.wayID][pack.rowID].accessRefCnt.insert(threadID);
 	}
 
 	TYPE& operator()(size_t i)
@@ -695,8 +750,8 @@ public:
 
 		if(b3 && b4)
 		{
-			if (threadPrePackWayID == _lastWayIndex)
-			{
+			/*if (threadPrePackWayID == _lastWayIndex)
+			{*/
 				/*
 				一个pack应该不会被两个线程同时锁住，所以这个判断应该是没有必要
 				*/
@@ -714,7 +769,7 @@ public:
 				好像不用，就算没设，(currPack.wayID != threadPrePackWayID || currPack.rowID != threadPrePackRowID) 这个条件应该也会约束最外面的if判断
 				*/
 				//}
-			}
+			//}
 
 		}
 
@@ -739,7 +794,7 @@ public:
 			//	_packState[wayID][rowID].refCnt++;
 			//}
 
-			lockPackByRefCnt(currPack);
+			//lockPackByRefCnt(currPack);
 			size_t offsetInsidePack = i % _packSize;
 			size_t wayID = currPack.wayID;
 			size_t rowID = currPack.rowID;

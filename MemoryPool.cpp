@@ -69,14 +69,14 @@ int main(int argc, char* argv[])
 
 
 	printf("Start to run the program\n");
-	/*size_t wayNum = 1;
+	size_t wayNum = 1;
 	size_t waySize = 1;
 	size_t packSize = 2;
-	int threadNum = 2;*/
-	size_t wayNum = 4;
+	int threadNum = 2;
+	/*size_t wayNum = 4;
 	size_t waySize = 10;
 	size_t packSize = 16;
-	int threadNum = 8;
+	int threadNum = 8;*/
 	VirtualMemory<float> mp(wayNum, waySize, packSize, threadNum);
 	mp.setRank(0);	
 	omp_set_num_threads(threadNum);
