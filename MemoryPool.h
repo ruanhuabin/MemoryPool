@@ -30,7 +30,7 @@ using namespace std;
 #define LOAD_FROM_DISK "Load From Disk"
 //#define THREAD_NUM 2 
 
-const size_t MAX_SCRIPT_INDEX = std::numeric_limits<size_t>::max();
+const size_t MAX_SCRIPT_INDEX = std::numeric_limits<size_t>::max()/2;
 const size_t MAX_THREAD_ID_NUM = 8192;
 #define FILE_NAME_MAX_LEN 1024
 
@@ -122,8 +122,14 @@ public:
 
 
 		pack_state_t** packState = mp->getPackState();
-		#pragma omp atomic
-		packState[wayID][rowID].refCnt--;
+		/*
+		without this checking, when thread number is bigger than element number, wayID and rowID is equal to MAX_SCRIPT_INDEX, that will cause error.
+		*/
+		if (wayID != MAX_SCRIPT_INDEX && rowID != MAX_SCRIPT_INDEX)
+		{
+			#pragma omp atomic
+			packState[wayID][rowID].refCnt--;
+		}
 		
 		
 
@@ -661,7 +667,7 @@ public:
 
 	}
 
-	TYPE& operator()(size_t i)
+	TYPE& operator[](size_t i)
 	{
 		size_t threadID = omp_get_thread_num();
 		pack_t currPack;
@@ -671,8 +677,6 @@ public:
 		size_t threadPrePackWayID = _threadPackInfo[threadID].prePackWayID;
 		size_t threadPrePackRowID = _threadPackInfo[threadID].prePackRowID;
 		size_t threadPrePackLogicID = _threadPackInfo[threadID].prePackLogicID;
-		bool b1 = threadPrePackWayID != MAX_SCRIPT_INDEX;
-		bool b2 = threadPrePackRowID != MAX_SCRIPT_INDEX;
 		bool b3 = threadPrePackLogicID != MAX_SCRIPT_INDEX;
 		bool b4 = currPack.logicPackID != threadPrePackLogicID;
 
@@ -736,9 +740,12 @@ public:
 				return data;
 
 			}
+			else
+			{
+				fprintf(stderr, "[%s:%d] Error: Unexpect pack status [%s] found, please check !!!\n", __FILE__, __LINE__, currPack.status.c_str());
+				abort();
+			}
 
-			printf("***************Error, () will return first unit in first pack\n");
-			return _memoryPool[0][0].packData[0];
 		}
 	}
 	
