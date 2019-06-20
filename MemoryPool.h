@@ -39,16 +39,13 @@ class pack_unit_type_t
 {
 public:
 	TYPE* packData;
-//	TYPE packData[60];
 };
 typedef struct pack_state
 {
 	string packStatus; //这个作用很大，其某个值是判断是否需要替换的依据
 	size_t packStartIndex;	
-	/*size_t lastOpThreadID;
-	size_t lastLockThreadID;*/
 	int refCnt;
-	set<size_t> accessRefCnt;
+	bool isAvalilable;
 }pack_state_t;
 
 typedef struct pack_t
@@ -110,15 +107,7 @@ public:
 		size_t wayID = threadPackInfo[threadID].lastPackWayID;
 		size_t rowID = threadPackInfo[threadID].lastPackRowID;
 
-		if (wayID == (wayNum - 1))
-		{
-			printf("In deconstrucotr, pack[%lu, %lu, start index = %lu] will be unlocked by thread %lu\n", wayID, rowID, threadPackInfo[threadID].lastPackStartIndex, threadID);
-			mp->unlockPackByRefCnt(wayID, rowID);
-			printf("In deconstrucotr, pack[%lu, %lu, start index = %lu] is unlocked by thread %lu\n", wayID, rowID, threadPackInfo[threadID].lastPackStartIndex, threadID);
-		}
-
-		//thread_pack_info_t* threadPackInfo = mp->getThreadPackInfo();
-		/*size_t threadNum = mp->getOMPThreadNum();*/
+		
 		threadPackInfo[threadID].lastPackStartIndex = MAX_SCRIPT_INDEX;
 		threadPackInfo[threadID].lastPackLogicID = MAX_SCRIPT_INDEX;
 		threadPackInfo[threadID].lastPackRowID = MAX_SCRIPT_INDEX;
@@ -133,7 +122,8 @@ public:
 
 
 		pack_state_t** packState = mp->getPackState();
-		packState[wayID][rowID].accessRefCnt.clear();
+		#pragma omp atomic
+		packState[wayID][rowID].refCnt--;
 		
 		
 
@@ -155,6 +145,7 @@ private:
 	int _threadNum;
 	size_t _lastWayIndex;
 	map<size_t, string> _pack2File;
+	omp_lock_t* _rowLock;
 
 public:
 
@@ -280,6 +271,13 @@ public:
 		_packSize = packSize;
 		_lastWayIndex = _wayNum - 1;
 
+		
+		_rowLock = new omp_lock_t[_waySize];
+		for (size_t i = 0; i < _waySize; i++)
+		{
+			omp_init_lock(&_rowLock[i]);
+		}
+
 		_memoryPool = new pack_unit_type_t<TYPE> * [_wayNum];
 		for (size_t i = 0; i < _wayNum; i++)
 		{
@@ -295,8 +293,6 @@ public:
 			}
 		}
 
-
-
 		_packState = new pack_state_t * [_wayNum];
 		for (size_t i = 0; i < _wayNum; i++)
 		{
@@ -305,9 +301,8 @@ public:
 			{
 				_packState[i][j].packStatus = EMPTY;
 				_packState[i][j].packStartIndex = MAX_SCRIPT_INDEX;				
-				//_packState[i][j].lastOpThreadID = MAX_THREAD_ID_NUM;
-				//_packState[i][j].lastLockThreadID = MAX_THREAD_ID_NUM;
 				_packState[i][j].refCnt = 0;
+				_packState[i][j].isAvalilable = false;
 			}
 		}
 
@@ -362,6 +357,7 @@ public:
 		delete[]  _memoryPool;
 		delete[]  _packState;
 		delete[]  _threadPackInfo;
+		delete[] _rowLock;
 	}
 
 	void writePackDataToDisk(char* packDataFilename, const pack_t& packIndex)
@@ -440,74 +436,15 @@ public:
 
 		size_t threadID = omp_get_thread_num();
 		static size_t cnt = 0;
-		printf("thread ID: %lu , cnt = %lu, is waiting lock, accessRefCnt = %lu, thread ID list is: ", threadID, ++cnt, _packState[pack.wayID][pack.rowID].accessRefCnt.size());
-		for (it = _packState[pack.wayID][pack.rowID].accessRefCnt.begin(); it != _packState[pack.wayID][pack.rowID].accessRefCnt.end(); it++)
-		{
-			printf("%lu ", *it);
-		}
-		printf("\n");
 	
 	}
 	void lockPackByRefCnt(const pack_t &pack)
 	{
-		/*#pragma omp critical(lockRef)
-		{
-			while (_packState[pack.wayID][pack.rowID].refCnt != 0)
-			{
-				static size_t cnt = 0;
-				cnt ++;
-				if(cnt % 2 == 0)
-				{
-					printf("wait for lock by thread: %d, refcnt = %d\n", omp_get_thread_num(), _packState[pack.wayID][pack.rowID].refCnt);
-				}
-
-			}
-			_packState[pack.wayID][pack.rowID].refCnt++;
-		}*/
-
-		size_t threadID = omp_get_thread_num();
-		#pragma omp critical(lockRef)
-		{
-			bool b1 = _packState[pack.wayID][pack.rowID].accessRefCnt.size() != 0;
-			size_t elementNum = _packState[pack.wayID][pack.rowID].accessRefCnt.size();
-			bool b2 = false;
-			if (b1 && elementNum == 1)
-			{
-
-				b2 = (threadID != *(_packState[pack.wayID][pack.rowID].accessRefCnt.begin()));
-                 
-			}
-			while (b1 && b2)
-			{
-				printf("b1 = %d, b2 = %d\n", b1, b2);
-				printAccessRefCnt(pack);
-			}
-			_packState[pack.wayID][pack.rowID].accessRefCnt.insert(threadID);
-			
-		}
 		
 	}
 
 	void unlockPackByRefCnt(const size_t& packWayID, const size_t& packRowID)
 	{
-		//#pragma omp atomic
-		//_packState[packWayID][packRowID].refCnt --;
-
-      //  #pragma omp critical(unlockRef)
-      //  {
-		    ////_packState[packWayID][packRowID].refCnt --;
-		    //_packState[packWayID][packRowID].refCnt = 0;
-      //      if(_packState[packWayID][packRowID].refCnt < 0)
-      //      {
-      //          printf("Reference cnt was negtative by thread: %d, refCnt = %d\n", omp_get_thread_num(), _packState[packWayID][packRowID].refCnt);
-      //      }
-      //  }
-
-		#pragma omp critical(unlockRef)
-		{
-			size_t threadID = omp_get_thread_num();
-			_packState[packWayID][packRowID].accessRefCnt.erase(threadID);
-		}
 	}
 
 	
@@ -530,11 +467,6 @@ public:
 		memset(packDataFilename, '\0', FILE_NAME_MAX_LEN);
 		/* 这边构造文件名的时候，将来需要把Json文件中的outputdir给加上 */
 		snprintf(packDataFilename, FILE_NAME_MAX_LEN, "p%d_i%lu_w%lu_r%lu.dat", getRank(), _packState[packIndex.wayID][packIndex.rowID].packStartIndex, packIndex.wayID, packIndex.rowID);
-		if (_packState[packIndex.wayID][packIndex.rowID].packStartIndex == 2432)
-		{
-			printf("start to process 2432\n");
-			printf("\n");
-		}
 		writePackDataToDisk(packDataFilename, packIndex);
 
 		/**
@@ -643,7 +575,7 @@ public:
 		 */
 		size_t packID = unpackIndex / _packSize;
 		size_t rowID = packID % _waySize;
-		#pragma omp critical  (line833)
+		omp_set_lock(&_rowLock[rowID]);
 		{
 			bool packAvailable = false;
 			for (size_t i = 0; i < _wayNum; i++)
@@ -659,7 +591,7 @@ public:
 					_packState[i][rowID].packStatus = ALLOCATED;
 					size_t startIndex = (unpackIndex / _packSize) * _packSize;
 					_packState[i][rowID].packStartIndex = startIndex;
-					//_packState[i][rowID].lastOpThreadID = threadID;
+					_packState[i][rowID].isAvalilable = true;
 
 					/**
 					 * _threadPackInfo is used to record the pack index info and the start index of the pack, so as to get the pack for next unpackIndex rapidly.
@@ -672,7 +604,7 @@ public:
 					_threadPackInfo[threadID].lastPackStartIndex = startIndex;
 					packAvailable = true;
 
-
+					omp_unset_lock(&_rowLock[rowID]);
 					break;
 				}
 				else if (_packState[i][rowID].packStatus == ALLOCATED || _packState[i][rowID].packStatus == LOAD_FROM_DISK)
@@ -682,8 +614,10 @@ public:
 						pack.rowID = rowID;
 						pack.wayID = i;
 						pack.status = OLD;
+						
+						_packState[i][rowID].isAvalilable = true;
 
-					/**
+					    /**
 						 *  Following assigment is must, otherwise, if same pack is accessed multiple times,
 						 *  then thread locality code will not be executed, this will dramaticlly reduce the
 						 *  performance.
@@ -696,6 +630,8 @@ public:
 						_threadPackInfo[threadID].lastPackLogicID = logicPackID;
 						
 						packAvailable = true;
+
+						omp_unset_lock(&_rowLock[rowID]);
 						break;
 					}
 				}
@@ -718,24 +654,16 @@ public:
 				_threadPackInfo[threadID].lastPackLogicID = logicPackID;
 
 				_packState[_wayNum - 1][rowID].packStatus = NEED_TO_BE_REPLACED;
+				_packState[_wayNum - 1][rowID].isAvalilable = false;
 
 			}
 		}
 
-		/*
-		记录一下当前这个pack都有哪些线程在访问，这样在替换的时候，要保证这个pack没有任何线程对其进行访问，这样才能够进行替换。
-
-		*/
-		_packState[pack.wayID][pack.rowID].accessRefCnt.insert(threadID);
 	}
 
 	TYPE& operator()(size_t i)
 	{
 		size_t threadID = omp_get_thread_num();
-		if (threadID == 1)
-		{
-			printf("threadID 1 is running\n");
-		}
 		pack_t currPack;
 		/*这个函数内部会保存_threadPackInfo[threadID]相关的信息*/
 		getPackByUnpackIndex(currPack, i);
@@ -748,110 +676,72 @@ public:
 		bool b3 = threadPrePackLogicID != MAX_SCRIPT_INDEX;
 		bool b4 = currPack.logicPackID != threadPrePackLogicID;
 
-		if(b3 && b4)
-		{
-			/*if (threadPrePackWayID == _lastWayIndex)
-			{*/
-				/*
-				一个pack应该不会被两个线程同时锁住，所以这个判断应该是没有必要
-				*/
-				/*if (threadID == _packState[threadPrePackWayID][threadPrePackRowID].lastLockThreadID)
-				{*/
-				printf("===>start to unlock previous pack by thread: %d\n", omp_get_thread_num());
-				unlockPackByRefCnt(threadPrePackWayID, threadPrePackRowID);
-				printf("===>end to unlock previous pack by thread: %d\n", omp_get_thread_num());
-
-				/*
-				把上一个pack解锁之后，由于一个pack只能解锁一次，所以还需要把_threadPackInfo中和这个threadID相关的pre相关的信息给重置一下？
-				好像不用，因为代码会继续往下执行，把上一次操作的pack给替换成当前操作的pack。
-
-				另外，解锁完成之后，需要把prePackWayID,prePackRowID的设为MAX_SCRIPT_INDEX吗？不设的话，会发生什么情况？
-				好像不用，就算没设，(currPack.wayID != threadPrePackWayID || currPack.rowID != threadPrePackRowID) 这个条件应该也会约束最外面的if判断
-				*/
-				//}
-			//}
-
-		}
-
-	    if (currPack.status == NEW && currPack.wayID != _lastWayIndex)
+		if (currPack.status == THREAD_LAST_PACK_REUSED)
 		{
 			size_t wayID = currPack.wayID;
 			size_t rowID = currPack.rowID;
 			size_t offsetInsidePack = i % _packSize;
 			TYPE& data = _memoryPool[wayID][rowID].packData[offsetInsidePack];
-			saveThreadPreProcessPack();
-
 			return data;
 		}
-		else if (currPack.status == NEW && currPack.wayID == _lastWayIndex)
+		else
 		{
-			/*size_t wayID = currPack.wayID;
-			size_t rowID = currPack.rowID;*/
-			////这个相当于锁住pack
-			//#pragma omp critical
-			//{
-			//	while (_packState[wayID][rowID].refCnt != 0);
-			//	_packState[wayID][rowID].refCnt++;
-			//}
+			if (b3 && b4)
+			{
+				#pragma omp atomic
+				_packState[threadPrePackWayID][threadPrePackRowID].refCnt --;
+			}
 
-			//lockPackByRefCnt(currPack);
-			size_t offsetInsidePack = i % _packSize;
-			size_t wayID = currPack.wayID;
-			size_t rowID = currPack.rowID;
-			TYPE& data = _memoryPool[wayID][rowID].packData[offsetInsidePack];
-			saveThreadPreProcessPack();
+			if (currPack.status == NEW)
+			{
+				size_t wayID = currPack.wayID;
+				size_t rowID = currPack.rowID;
+				size_t offsetInsidePack = i % _packSize;
+				TYPE& data = _memoryPool[wayID][rowID].packData[offsetInsidePack];
 
-			return data;
+				#pragma omp atomic
+				_packState[wayID][rowID].refCnt++;
+				saveThreadPreProcessPack();
+
+				return data;
+			}
+			else if (currPack.status == OLD)
+			{
+				size_t wayID = currPack.wayID;
+				size_t rowID = currPack.rowID;
+				size_t offsetInsidePack = i % _packSize;
+				TYPE& data = _memoryPool[wayID][rowID].packData[offsetInsidePack];
+				#pragma omp atomic
+				_packState[wayID][rowID].refCnt++;
+				saveThreadPreProcessPack();
+
+				return data;
+			}
+			else if (currPack.status == NEED_TO_BE_REPLACED)
+			{
+				size_t wayID = currPack.wayID;
+				size_t rowID = currPack.rowID;
+				while (_packState[wayID][rowID].refCnt != 0);
+
+				writeAndLoadPack(currPack, i);
+
+				saveThreadPreProcessPack();
+				size_t offsetInsidePack = i % _packSize;
+				TYPE& data = _memoryPool[wayID][rowID].packData[offsetInsidePack];
+
+				#pragma omp atomic
+				_packState[wayID][rowID].refCnt++;
+
+				omp_unset_lock(&_rowLock[rowID]);
+				return data;
+
+			}
+
+			printf("***************Error, () will return first unit in first pack\n");
+			return _memoryPool[0][0].packData[0];
 		}
-		
-		else if (currPack.status == OLD || currPack.status == THREAD_LAST_PACK_REUSED)
-		{
-			size_t wayID = currPack.wayID;
-			size_t rowID = currPack.rowID;
-			size_t offsetInsidePack = i % _packSize;
-			TYPE& data = _memoryPool[wayID][rowID].packData[offsetInsidePack];
-			saveThreadPreProcessPack();
-
-			return data;
-		}
-		else if (currPack.status == NEED_TO_BE_REPLACED)
-		{
-			//size_t wayID = currPack.wayID;
-			//size_t rowID = currPack.rowID;
-			///*这个pack需要被替换，所以首先需要等待这个pack的引用计数为0后才能进行后续的替换操作.
-			//由于在static调度模式下，有可能出现2个线程拿到同一个pack，比如，线程1的后半部分索引与线程2处理的前半部分的
-			//索引需要的是同一个pack，因此，等待解锁，然后加锁的操作需要放到一个critical区域内部处理。
-
-			//*/
-			//#pragma omp critical
-			//{
-			//	while (_packState[wayID][rowID].refCnt != 0);
-			//	_packState[wayID][rowID].refCnt++;
-			//}
-
-			lockPackByRefCnt(currPack);
-
-			writeAndLoadPack(currPack, i);
-
-			/*这个写完之后，能进行解锁吗？
-			不能，因为在static模式下，后续处理的下标应该还是操作这个pack，这个时候，后续的下标i，会在getPackByUnpackIndex函数的前面几行，利用线程访问数据的局部性来
-			快速拿到对应的pack，并且pack的状态应该是THREAD_LAST_REUSED。
-
-			而如果发现操作的不是同一个pack了，则会在()函数的开始几行先解锁上一次操作的pack，然后再具体根据currPack的具体状态，选择对应的if分支进行执行。
-			*/
-			saveThreadPreProcessPack();
-			size_t offsetInsidePack = i % _packSize;
-			size_t wayID = currPack.wayID;
-			size_t rowID = currPack.rowID;
-			TYPE& data = _memoryPool[wayID][rowID].packData[offsetInsidePack];
-
-			return data;
-
-		}
-
-		printf("***************Error, () will return first unit in first pack\n");
-		return _memoryPool[0][0].packData[0];
 	}
+	
 };
 
 #endif

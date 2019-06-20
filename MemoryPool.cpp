@@ -69,10 +69,10 @@ int main(int argc, char* argv[])
 
 
 	printf("Start to run the program\n");
-	size_t wayNum = 1;
+	size_t wayNum = 2;
 	size_t waySize = 1;
 	size_t packSize = 2;
-	int threadNum = 2;
+	int threadNum = 1;
 	/*size_t wayNum = 4;
 	size_t waySize = 10;
 	size_t packSize = 16;
