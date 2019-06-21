@@ -69,22 +69,29 @@ int main(int argc, char* argv[])
 
 
 	printf("Start to run the program\n");
-	size_t wayNum = 1;
+    size_t wayNum = 2;
 	size_t waySize = 1;
 	size_t packSize = 2;
-	int threadNum = 8;
+	int threadNum = 2;
+
+	//size_t wayNum = 4;
+	//size_t waySize = 1000;
+	//size_t packSize = 240;
+	//int threadNum = 8;
 	/*size_t wayNum = 4;
 	size_t waySize = 10;
 	size_t packSize = 16;
 	int threadNum = 8;*/
-	VirtualMemory<float> mp(wayNum, waySize, packSize, threadNum);
+
+    size_t chunkSize = 1;
+	VirtualMemory<float> mp(wayNum, waySize, packSize, threadNum, "test");
 	mp.setRank(0);	
 	omp_set_num_threads(threadNum);
-	const size_t totalElementNum = 2 * wayNum * waySize * packSize ;
+	const size_t totalElementNum = 2 * wayNum * waySize * packSize + 100 ;
 	float* expect0 = new float[totalElementNum];
 
 	ThreadExitPostProcessor<float> lock(&mp);
-	#pragma omp parallel for firstprivate(lock) schedule(static, 1) 
+	#pragma omp parallel for firstprivate(lock) schedule(static, chunkSize) 
 	for (size_t i = 0; i < totalElementNum; i++)
 	{
 		mp[i] = (float)i + 2;

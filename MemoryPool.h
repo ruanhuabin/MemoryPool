@@ -17,6 +17,14 @@
 
 #include<errno.h>
 #include <stdarg.h>
+#include <unistd.h>
+#include <sys/types.h>
+#include <sys/stat.h>
+#include <fcntl.h>
+#include <sys/types.h>
+#include <unistd.h>
+#include <errno.h>
+
 using namespace std;
 #pragma warning(disable:4996)
 
@@ -152,6 +160,7 @@ private:
 	size_t _lastWayIndex;
 	map<size_t, string> _pack2File;
 	omp_lock_t* _rowLock;
+    int _fd;
 
 public:
 
@@ -268,7 +277,7 @@ public:
 		}
 	}
 
-	VirtualMemory(size_t wayNum, size_t waySize, size_t packSize, int threadNum)
+	VirtualMemory(size_t wayNum, size_t waySize, size_t packSize, int threadNum, const char *packFileIdentifier="file")
 	{
 		_threadNum = threadNum;	
 
@@ -276,6 +285,26 @@ public:
 		_waySize = waySize;
 		_packSize = packSize;
 		_lastWayIndex = _wayNum - 1;
+
+
+        
+        /**
+         *  This need to be changed to _rank = getRank() in future
+         */
+        _rank = 0;
+
+        char packFilename[FILE_NAME_MAX_LEN];
+        memset(packFilename, '\0', sizeof(packFilename));
+        sprintf(packFilename, "p%d_%s.dat", _rank, packFileIdentifier); 
+        //printf("Start to open the file: %s\n", packFilename);
+        _fd = open(packFilename, O_RDWR | O_CREAT | O_LARGEFILE, 00644);
+        //printf("End to open the file: %s\n", packFilename);
+        if(_fd == - 1)
+        {
+            fprintf(stderr, "Error to open file pack file\n %s", strerror(errno));
+            abort();;
+        }
+
 
 		
 		_rowLock = new omp_lock_t[_waySize];
@@ -364,6 +393,8 @@ public:
 		delete[]  _packState;
 		delete[]  _threadPackInfo;
 		delete[] _rowLock;
+
+        close(_fd);
 	}
 
 	void writePackDataToDisk(char* packDataFilename, const pack_t& packIndex)
@@ -466,6 +497,45 @@ public:
 	}
 
 
+    int getUnitSize()
+    {
+        return sizeof(TYPE);
+    }
+    void writeAndLoadPackWithSingleFile(const pack_t &pack, const size_t &i)
+    {
+        size_t threadID = omp_get_thread_num();
+        size_t wayID = pack.wayID;
+        size_t rowID = pack.rowID;
+        size_t currLogicID = _packState[wayID][rowID].packStartIndex / _packSize;
+
+        off_t writePosInBytes = currLogicID * _packSize * getUnitSize();  
+        size_t sizeToWrite = _packSize * getUnitSize();
+        //printf("thread %lu start to write file\n", threadID);
+        pwrite(_fd, _memoryPool[wayID][rowID].packData, sizeToWrite, writePosInBytes); 
+        //printf("thread %lu end to write file\n", threadID);
+        //fsync(_fd);
+        
+
+        size_t logicPackID = pack.logicPackID;
+        size_t readPosInBytes = logicPackID * _packSize * getUnitSize();
+        size_t sizeToRead = _packSize * getUnitSize();
+        //printf("thread %lu start to read file\n", threadID);
+        pread(_fd, _memoryPool[wayID][rowID].packData, sizeToRead, readPosInBytes); 
+        //printf("thread %lu end to read file\n", threadID);
+
+        size_t packNewStartIndex = (i / _packSize) * _packSize;
+        _packState[wayID][rowID].packStartIndex = packNewStartIndex;
+		_packState[wayID][rowID].packStatus = LOAD_FROM_DISK;
+
+
+		_threadPackInfo[threadID].lastPackType = LOAD_FROM_DISK;
+		_threadPackInfo[threadID].lastPackStartIndex = packNewStartIndex;
+		_threadPackInfo[threadID].lastPackWayID = wayID;
+		_threadPackInfo[threadID].lastPackRowID = rowID;
+		_threadPackInfo[threadID].lastPackLogicID = i / _packSize;
+
+
+    }
 	void writeAndLoadPack(pack_t& packIndex, const size_t& i)
 	{
 		size_t threadID = omp_get_thread_num();
@@ -727,7 +797,8 @@ public:
 				size_t rowID = currPack.rowID;
 				while (_packState[wayID][rowID].refCnt != 0);
 
-				writeAndLoadPack(currPack, i);
+				writeAndLoadPackWithSingleFile(currPack, i);
+                //writeAndLoadPack(currPack, i);
 
 				saveThreadPreProcessPack();
 				size_t offsetInsidePack = i % _packSize;
