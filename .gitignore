@@ -12,3 +12,4 @@ tags
 mprepo/*
 *.bak
 MemoryPool
+*.swp
