@@ -24,7 +24,7 @@
 #include <sys/types.h>
 #include <unistd.h>
 #include <errno.h>
-
+#include <typeinfo>
 using namespace std;
 #pragma warning(disable:4996)
 
@@ -41,6 +41,24 @@ using namespace std;
 const size_t MAX_SCRIPT_INDEX = std::numeric_limits<size_t>::max()/2;
 const size_t MAX_THREAD_ID_NUM = 8192;
 #define FILE_NAME_MAX_LEN 1024
+
+/* *******************************Following struct and type are used for testing purpose */
+#define RFLOAT float
+
+typedef struct MyComplex
+{
+    RFLOAT real;
+    RFLOAT image;
+}Complex;
+
+
+class Image
+{
+    private:
+        size_t realSize;
+        size_t FTSize;
+};
+/*****************************************************************************************/
 
 template <class TYPE>
 class pack_unit_type_t
@@ -239,7 +257,7 @@ public:
 				_memoryPool[i][j].packData = new TYPE[_packSize];
 				for (size_t k = 0; k < _packSize; k++)
 				{
-					_memoryPool[i][j].packData[k] = -1;
+					//_memoryPool[i][j].packData[k] = -1;
 				}
 			}
 		}
@@ -323,7 +341,7 @@ public:
 				_memoryPool[i][j].packData = new TYPE[_packSize];
 				for (size_t k = 0; k < _packSize; k++)
 				{
-					_memoryPool[i][j].packData[k] = -1;
+					//_memoryPool[i][j].packData[k] = -1;
 				}
 			}
 		}
@@ -501,6 +519,22 @@ public:
     {
         return sizeof(TYPE);
     }
+
+    void writeToPackFile(TYPE* packData, size_t sizeToWrite, off_t writePos)
+    {
+        if(typeid(TYPE) == typeid(float))
+        {
+            printf("The type of item in pack is float\n");
+        }
+        else if(typeid(TYPE) == typeid(Complex))
+        {
+            printf("The type of item in pack is Complex\n");
+        }
+        else if(typeid(TYPE) == typeid(Image))
+        {
+            printf("The type of item in pack is Image\n");
+        }
+    }
     void writeAndLoadPackWithSingleFile(const pack_t &pack, const size_t &i)
     {
         size_t threadID = omp_get_thread_num();
@@ -510,16 +544,13 @@ public:
 
         off_t writePosInBytes = currLogicID * _packSize * getUnitSize();  
         size_t sizeToWrite = _packSize * getUnitSize();
-        //printf("thread %lu start to write file\n", threadID);
         pwrite(_fd, _memoryPool[wayID][rowID].packData, sizeToWrite, writePosInBytes); 
-        //printf("thread %lu end to write file\n", threadID);
         //fsync(_fd);
         
 
         size_t logicPackID = pack.logicPackID;
         size_t readPosInBytes = logicPackID * _packSize * getUnitSize();
         size_t sizeToRead = _packSize * getUnitSize();
-        //printf("thread %lu start to read file\n", threadID);
         pread(_fd, _memoryPool[wayID][rowID].packData, sizeToRead, readPosInBytes); 
         //printf("thread %lu end to read file\n", threadID);
 

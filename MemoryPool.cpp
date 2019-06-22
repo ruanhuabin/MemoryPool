@@ -65,22 +65,37 @@ int main(int argc, char* argv[])
 	}
 
 
-	printf("Start to run the program\n");
-    size_t wayNum = 2;
-	size_t waySize = 1;
-	size_t packSize = 2;
-	int threadNum = 2;
+	
 
-	//size_t wayNum = 4;
-	//size_t waySize = 1000;
-	//size_t packSize = 240;
-	//int threadNum = 8;
+
+	printf("Start to run the program\n");
+    //size_t wayNum = 2;
+	//size_t waySize = 1;
+	//size_t packSize = 2;
+	//int threadNum = 2;
+
+    size_t wayNum = 4;
+    size_t waySize = 10000;
+    size_t packSize = 2400;
+    int threadNum = 8;
 	/*size_t wayNum = 4;
 	size_t waySize = 10;
 	size_t packSize = 16;
 	int threadNum = 8;*/
 
-    size_t chunkSize = 1;
+    VirtualMemory<float> mpf(wayNum, waySize, packSize, threadNum, "float");
+	VirtualMemory<Complex> mpc(wayNum, waySize, packSize, threadNum, "complex");
+	VirtualMemory<Image> mpi(wayNum, waySize, packSize, threadNum, "image");
+
+    mpf.writeToPackFile(NULL, 1, 1);
+    mpc.writeToPackFile(NULL, 1, 1);
+    mpi.writeToPackFile(NULL, 1, 1);
+    return 0;
+
+
+
+
+    size_t chunkSize = packSize;
 	VirtualMemory<float> mp(wayNum, waySize, packSize, threadNum, "test");
 	mp.setRank(0);	
 	omp_set_num_threads(threadNum);
