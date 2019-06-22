@@ -125,7 +125,7 @@ public:
 		/*
 		without this checking, when thread number is bigger than element number, wayID and rowID is equal to MAX_SCRIPT_INDEX, that will cause error.
 		*/
-		if (wayID != MAX_SCRIPT_INDEX && rowID != MAX_SCRIPT_INDEX)
+		//if (wayID != MAX_SCRIPT_INDEX && rowID != MAX_SCRIPT_INDEX)
 		{
 			#pragma omp atomic
 			packState[wayID][rowID].refCnt--;
@@ -539,16 +539,12 @@ public:
 	{
 		
 		size_t threadID = omp_get_thread_num();
-		/*首先不管三七二十一，先把每个下标对应的逻辑地址算出来保存一下*/
+		/*Calculate logic pack ID since it is always needed*/
 		size_t logicPackID = unpackIndex / _packSize;
 		pack.logicPackID = logicPackID;
-		/*
-		这边不能基于_packState中的packStartIndex来进行判断，因为其值有可能会被其它线程随时修改；
-		所以只能用线程自己的本地数据结构_threadPackInfo来判断，但这边有一个前提条件：一旦一个pack被线程A锁住了，这个pack只能由线程A来解锁，否则的话，
-		就会出现这个pack实际的startIndex与线程自己保存的lastPackStartIndex不一致，因为这个pack可能由于被其它线程解锁了，导致其startIndex与线程A访问/修改时对应的
-		startIndex不一致。因此，线程A只能在两种情况下解锁自己锁住的pack：1. 下次进入到[]函数时，如果当前访问的pack与上次访问的pack不一致，则解锁上一次访问的pack，并且上一次
-		的这个pack也一定是之前被自己锁住的。2. 线程A在退出openmp并行区时，会调用ThreadExitPostProcessor的析构函数，来释放自己最后一次访问的pack的锁。
-		*/
+
+		
+
 		int flag = unpackIndex >= _threadPackInfo[threadID].lastPackStartIndex
 			&& unpackIndex < (_threadPackInfo[threadID].lastPackStartIndex + _packSize);
 
@@ -562,6 +558,19 @@ public:
 			return;
 		}
 
+		/*
+		Before search new container, the reference count of last visit container should be reduced by 1	
+		*/
+		size_t threadPrePackWayID = _threadPackInfo[threadID].prePackWayID;
+		size_t threadPrePackRowID = _threadPackInfo[threadID].prePackRowID;
+		size_t threadPrePackLogicID = _threadPackInfo[threadID].prePackLogicID;
+		bool b3 = threadPrePackLogicID != MAX_SCRIPT_INDEX;
+		bool b4 = pack.logicPackID != threadPrePackLogicID;
+		if (b3 && b4)
+		{
+				#pragma omp atomic
+				_packState[threadPrePackWayID][threadPrePackRowID].refCnt --;
+		}
 
 		/**
 		 *  The following code block must be executed serially, because the state data structure _packState must be updated globally.
@@ -674,11 +683,11 @@ public:
 		/*这个函数内部会保存_threadPackInfo[threadID]相关的信息*/
 		getPackByUnpackIndex(currPack, i);
 
-		size_t threadPrePackWayID = _threadPackInfo[threadID].prePackWayID;
+		/*size_t threadPrePackWayID = _threadPackInfo[threadID].prePackWayID;
 		size_t threadPrePackRowID = _threadPackInfo[threadID].prePackRowID;
 		size_t threadPrePackLogicID = _threadPackInfo[threadID].prePackLogicID;
 		bool b3 = threadPrePackLogicID != MAX_SCRIPT_INDEX;
-		bool b4 = currPack.logicPackID != threadPrePackLogicID;
+		bool b4 = currPack.logicPackID != threadPrePackLogicID;*/
 
 		if (currPack.status == THREAD_LAST_PACK_REUSED)
 		{
@@ -690,11 +699,11 @@ public:
 		}
 		else
 		{
-			if (b3 && b4)
+			/*if (b3 && b4)
 			{
 				#pragma omp atomic
 				_packState[threadPrePackWayID][threadPrePackRowID].refCnt --;
-			}
+			}*/
 
 			if (currPack.status == NEW)
 			{
@@ -725,17 +734,19 @@ public:
 			{
 				size_t wayID = currPack.wayID;
 				size_t rowID = currPack.rowID;
+				printf("thread %lu start to wait while loop, _packState[%lu][%lu].refCnt = %d, index = %lu\n", threadID, wayID, rowID, _packState[wayID][rowID].refCnt, i);
 				while (_packState[wayID][rowID].refCnt != 0);
-
+				printf("thread %lu end to wait while loop, _packState[%lu][%lu].refCnt = %d, index = %lu\n", threadID, wayID, rowID, _packState[wayID][rowID].refCnt, i);
 				writeAndLoadPack(currPack, i);
 
 				saveThreadPreProcessPack();
 				size_t offsetInsidePack = i % _packSize;
 				TYPE& data = _memoryPool[wayID][rowID].packData[offsetInsidePack];
 
-				#pragma omp atomic
-				_packState[wayID][rowID].refCnt++;
+				//#pragma omp atomic
+				//_packState[wayID][rowID].refCnt++;
 
+				_packState[wayID][rowID].refCnt = 1;
 				omp_unset_lock(&_rowLock[rowID]);
 				return data;
 
