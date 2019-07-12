@@ -12,6 +12,7 @@
 #include <limits>
 #include <map>
 #include <set>
+#include <vector>
 #include <fstream>
 #include <iostream>
 
@@ -324,7 +325,7 @@ public:
 };
 typedef struct pack_state
 {
-	string packStatus; //Õâ¸ö×÷ÓÃºÜ´ó£¬ÆäÄ³¸öÖµÊÇÅÐ¶ÏÊÇ·ñÐèÒªÌæ»»µÄÒÀ¾Ý
+	string packStatus; 
 	size_t packStartIndex;	
 	int refCnt;
 	bool isAvalilable;
@@ -335,7 +336,7 @@ typedef struct pack_t
 	size_t logicPackID;
 	size_t wayID;
 	size_t rowID;
-	string status;//Õâ¸östatus±äÁ¿ºÃÏñ×÷ÓÃ²»´ó£¬½«À´ÐèÒªÈ¥µô
+	string status;
 
 }pack_t;
 
@@ -345,13 +346,13 @@ typedef struct thread_pack_info {
 	size_t lastPackWayID;
 	size_t lastPackStartIndex;
 	size_t lastPackLogicID;
-	string lastPackType;//Õâ¸ölastPackTypeµÄ×÷ÓÃºÃÏñÒ²²»´ó£¬½«À´ÐèÒªÈ¥µô
+	string lastPackType;
 
 	size_t prePackRowID;
 	size_t prePackWayID;
 	size_t prePackStartIndex;
 	size_t prePackLogicID;
-	string prePackType;//Õâ¸ölastPackTypeµÄ×÷ÓÃºÃÏñÒ²²»´ó£¬½«À´ÐèÒªÈ¥µô
+	string prePackType;
 }thread_pack_info_t;
 
 template <class TYPE>
@@ -365,25 +366,27 @@ private:
 public:
 	ThreadExitPostProcessor()
 	{
+        //printf("thread %lu is entering ThreadExitPostProcessor()\n", omp_get_thread_num());
 	}
 
 	ThreadExitPostProcessor(VirtualMemory<TYPE>* mp)
 	{
-		/**
-		 *  Õâ¸ö¸³Öµ±ØÐëÓÐ£¬·ñÔòµ÷ÓÃ¿½±´¸³Öµº¯ÊýµÄÊ±ºò£¬±¾ÀàµÄ³ÉÔ±±äÁ¿mpÖÐÊý¾ÝÏî»á³öÏÖ¸÷ÖÖÎ´¶¨ÒåÖµ
-		 */
+        //printf("thread %lu is entering ThreadExitPostProcessor(.....)\n", omp_get_thread_num());
 		this->mp = mp;
 	}
 
-	ThreadExitPostProcessor(const ThreadExitPostProcessor& lock)
-	{
-		this->mp = lock.mp;
-
-	}
-
+    /**
+     *  This function will be called by openMP clause firstprivate(postProcessor)
+     */
+    ThreadExitPostProcessor(const ThreadExitPostProcessor &other)
+    {
+        //printf("thread %lu is entering copy construction ThreadExitPostProcessor()\n", omp_get_thread_num());
+        this->mp = other.mp;
+    }
 	~ThreadExitPostProcessor()
 	{
 		size_t threadID = omp_get_thread_num();
+        //printf("thread %lu is entering ~ThreadExitPostProcessor()\n", threadID);
 		thread_pack_info_t* threadPackInfo = mp->getThreadPackInfo();
 		size_t wayNum = mp->getWayNum();
 		size_t wayID = threadPackInfo[threadID].lastPackWayID;
@@ -407,12 +410,11 @@ public:
 		/*
 		without this checking, when thread number is bigger than element number, wayID and rowID is equal to MAX_SCRIPT_INDEX, that will cause error.
 		*/
-		//if (wayID != MAX_SCRIPT_INDEX && rowID != MAX_SCRIPT_INDEX)
+		if (wayID != MAX_SCRIPT_INDEX && rowID != MAX_SCRIPT_INDEX)
 		{
 			#pragma omp atomic
 			packState[wayID][rowID].refCnt--;
 		}
-		
 		
 
 	}
@@ -435,6 +437,7 @@ private:
 	map<size_t, string> _pack2File;
 	omp_lock_t* _rowLock;
     int _fd;
+    set<off_t> startIndexSets;
 
 public:
 
@@ -608,37 +611,58 @@ public:
 		{
 			for (size_t j = 0; j < _waySize; j++)
 			{
-				delete[] _memoryPool[i][j].packData;
+                if(_memoryPool[i][j].packData != NULL)
+                {
+                    delete[] _memoryPool[i][j].packData;
+                    _memoryPool[i][j].packData = NULL;
+                }
 			}
-			delete[] _memoryPool[i];
-			delete[] _packState[i];
+            if(_memoryPool[i] != NULL)
+            {
+                delete[] _memoryPool[i];
+                _memoryPool[i] = NULL;
+            }
+
+            if(_packState[i] != NULL)
+            {
+                delete[] _packState[i];
+                _packState[i] = NULL;
+            }
 		}
-		delete[]  _memoryPool;
-		delete[]  _packState;
-		delete[]  _threadPackInfo;
-		delete[] _rowLock;
+        if(_memoryPool != NULL)
+        {
+            delete[]  _memoryPool;
+            _memoryPool = NULL;
+        }
+
+        if(_packState != NULL)
+        {
+            delete[]  _packState;
+            _packState = NULL;
+        }
+        
+        if(_threadPackInfo != NULL)
+        {
+            delete[]  _threadPackInfo;
+            _threadPackInfo == NULL;
+        }
+
+        for(size_t i = 0; i < _waySize; i ++)
+        {
+            omp_destroy_lock(&_rowLock[i]);
+        }
+        if(_rowLock != NULL)
+        {
+            delete[] _rowLock;
+            _rowLock = NULL;
+        }
 
         close(_fd);
 	}
 
 	void writePackDataToDisk(char* packDataFilename, const pack_t& packIndex)
 	{
-		//size_t wayID = packIndex.wayID;
-		//size_t rowID = packIndex.rowID;
-		//FILE* fp = fopen(packDataFilename, "w");
-		///**
-		// * packÎÄ¼þµÄ¸ñÊ½£ºpackStartIndex packData
-		// * ËùÒÔÕâ¸öpackÎÄ¼þµÄÇ°sizeof(size_t)¸ö×Ö½ÚÊÇÕâ¸öpackÊý¾ÝµÄstartIndex
-		// */
-
-		//TYPE* packData = _memoryPool[wayID][rowID].packData;
-		////fwrite(packData, sizeof(TYPE), _packSize, fp);
-		///*for (size_t i = 0; i < _packSize; i++)
-		//{
-		//	fwrite(&packData[i], sizeof(TYPE), 1, fp);
-		//}*/
-		//fclose(fp);
-
+		
 		size_t wayID = packIndex.wayID;
 		size_t rowID = packIndex.rowID;
 		ofstream ofs(packDataFilename, ios::binary | ios::out );
@@ -1067,14 +1091,30 @@ public:
         size_t sizeToWrite = _packSize * getUnitSize();
         //pwrite(_fd, _memoryPool[wayID][rowID].packData, sizeToWrite, writePosInBytes); 
         writeToPackFile(_memoryPool[wayID][rowID].packData, sizeToWrite, writePosInBytes);
-        printf("writePosInBytes = %lu, sizeToWrite = %lu, i = %lu\n", writePosInBytes, sizeToWrite, i);
+
+        /**
+         * Saving the current writing position into a set structure, and using writing position in this set
+         * to determine whether we need to read pack from disk, because if a reading positon is not in 
+         * this set, meaning that the current operation is to return a space reference for writing instead 
+         * of reading
+         */
+        //startIndexSets.insert(writePosInBytes);
+        //printf("writePosInBytes = %lu, sizeToWrite = %lu, i = %lu\n", writePosInBytes, sizeToWrite, i);
 
         size_t logicPackID = pack.logicPackID;
         size_t readPosInBytes = logicPackID * _packSize * getUnitSize();
         size_t sizeToRead = _packSize * getUnitSize();
         //pread(_fd, _memoryPool[wayID][rowID].packData, sizeToRead, readPosInBytes); 
-        readFromPackFile(_memoryPool[wayID][rowID].packData, sizeToRead, readPosInBytes);
-        printf("readPosInBytes = %lu, sizeToRead = %lu, i = %lu\n", readPosInBytes, sizeToRead, i);
+
+        /**
+         * if the reading position is not in the set, indicating that currently we just need the reference
+         * of the space for writing, insteading of that for reading 
+         */
+        //if(startIndexSets.find(readPosInBytes) != startIndexSets.end())
+        {
+            readFromPackFile(_memoryPool[wayID][rowID].packData, sizeToRead, readPosInBytes);
+            //printf("readPosInBytes = %lu, sizeToRead = %lu, i = %lu\n", readPosInBytes, sizeToRead, i);
+        }
 
 
         size_t packNewStartIndex = (i / _packSize) * _packSize;

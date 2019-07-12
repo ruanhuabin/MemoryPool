@@ -511,87 +511,43 @@ int main(int argc, char* argv[])
 
 
 	printf("Start to run the program\n");
-    //size_t wayNum = 2;
-    //size_t waySize = 1;
-    //size_t packSize = 2;
-    //int threadNum = 1;
+    size_t wayNum = 2;
+    size_t waySize = 1;
+    size_t packSize = 2;
+    int threadNum = 1;
 
-    size_t wayNum = 4;
-    size_t waySize = 1000;
-    size_t packSize = 240;
-    int threadNum = 8;
-    //size_t wayNum = 4;
-    //size_t waySize = 10;
-    //size_t packSize = 8;
-    //int threadNum = 8;
+    
+    VirtualMemory<Image> imagePool(wayNum, waySize, packSize, threadNum, "test_image");
+    imagePool.setRank(0);
+    //omp_set_num_threads(threadNum);
+    const size_t totalImageNum = 2 * wayNum * waySize * packSize;
+    Image *expectImages = new Image[totalImageNum];
 
-//    VirtualMemory<Image> mpi(wayNum, waySize, packSize, threadNum, "image");
+    ThreadExitPostProcessor<Image> postProcessor(&imagePool);
+    #pragma omp parallel for firstprivate(postProcessor) schedule(static, packSize) num_threads(threadNum)
+    for(size_t i = 0; i < totalImageNum; i ++)
+    {
+        Image image;
+        imagePool[i] = image; 
+        expectImages[i] = image;
+    }
 
-//    pack_unit_type_t<Image> **mpiPool = mpi.getMemoryPool(); 
-//    mpf.writeToPackFile(NULL, 1, 0);
-//    mpc.writeToPackFile(NULL, 1, 0);
-//    mpi.writeToPackFile(mpiPool[0][0].packData, 1, 0);
-
-//    mpi.readFromPackFile(mpiPool[1][0].packData, 0, 0);
-//    for(size_t i = 0; i < packSize; i ++)
-//    {
-//       Image image = mpiPool[1][0].packData[i];
-//       size_t sizeRL = image._sizeRL;
-//       size_t sizeFT = image._sizeFT;
-//       printf("sizeRL = %lu\n", image._sizeRL);
-//       printf("sizeFT = %lu\n", image._sizeFT);
-        
-//       printf("dataRL: ");
-//       for(size_t j = 0; j < sizeRL; j ++)
-//       {
-            
-//           printf("%f ", image._dataRL[j]);
-//       }
-//       printf("\n");
-//       printf("dataFT: ");
-//       for(size_t j = 0; j < sizeFT; j ++)
-//       {
-//           printf("[%f, %f] ", image._dataFT[j].real, image._dataFT[j].image);
-//       }
-//       printf("\n");
-//       printf("nCol = %ld\n", image._nCol);
-//       printf("nRow = %ld\n", image._nRow);
-//       printf("nColFT = %ld\n", image._nColFT);
-//       printf("_box = [%lu, %lu, %lu, %lu]\n", image._box[0][0], image._box[0][1], image._box[1][0], image._box[1][1]);
-//    }
-
-
-
- VirtualMemory<Image> imagePool(wayNum, waySize, packSize, threadNum, "test_image");
- imagePool.setRank(0);
- omp_set_num_threads(threadNum);
- const size_t totalImageNum = 2 * wayNum * waySize * packSize + 1;
- Image *expectImages = new Image[totalImageNum];
-
- ThreadExitPostProcessor<Image> postProcessor(&imagePool);
-#pragma omp parallel for firstprivate(postProcessor) schedule(static, packSize)
- for(size_t i = 0; i < totalImageNum; i ++)
- {
-     Image image;
-     imagePool[i] = image; 
-     expectImages[i] = image;
- }
-
- printf("Start to check image result\n");
- checkImageResult(expectImages, imagePool, totalImageNum);
- return 0;
+    printf("Start to check image result\n");
+    checkImageResult(expectImages, imagePool, totalImageNum);
+    delete[] expectImages;
+    return 0;
 
 
 
     size_t chunkSize = packSize;
-	VirtualMemory<float> mp(wayNum, waySize, packSize, threadNum, "test");
+	VirtualMemory<float> mp(wayNum, waySize, packSize, threadNum, "test_float");
 	mp.setRank(0);	
-	omp_set_num_threads(threadNum);
+	//omp_set_num_threads(threadNum);
 	const size_t totalElementNum = 2 * wayNum * waySize * packSize ;
 	float* expect0 = new float[totalElementNum];
 
 	ThreadExitPostProcessor<float> lock(&mp);
-	#pragma omp parallel for firstprivate(lock) schedule(static, chunkSize) 
+    #pragma omp parallel for firstprivate(lock) schedule(static, chunkSize) num_threads(threadNum) 
 	for (size_t i = 0; i < totalElementNum; i++)
 	{
 		mp[i] = (float)i + 2;
@@ -599,7 +555,7 @@ int main(int argc, char* argv[])
 	}
 
 
-	printf("Start to check result\n");
+	printf("Start to check RFLOAT result\n");
 	checkResult(expect0, mp, totalElementNum);
 	delete[] expect0;
 
