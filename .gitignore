@@ -13,3 +13,5 @@ mprepo/*
 *.bak
 MemoryPool
 *.swp
+readImage.cpp
+readImage
