@@ -41,7 +41,7 @@ using namespace std;
 const size_t MAX_SCRIPT_INDEX = std::numeric_limits<size_t>::max()/2;
 const size_t MAX_THREAD_ID_NUM = 8192;
 #define FILE_NAME_MAX_LEN 1024
-
+const size_t MAX_IMAGE_BOX_SIZE = 2048;
 /* *******************************Following struct and type are used for testing purpose */
 #define RFLOAT float
 
@@ -51,12 +51,268 @@ typedef struct MyComplex
     RFLOAT image;
 }Complex;
 
-
-class Image
+class ImageBase
 {
-    private:
-        size_t realSize;
-        size_t FTSize;
+    //protected:
+    public:
+        RFLOAT* _dataRL;
+        Complex* _dataFT;
+        size_t _sizeRL;
+        size_t _sizeFT;
+        
+        static size_t number;
+
+    public:
+        ImageBase()
+        {
+            //#pragma omp atomic
+            //number ++;
+
+            float addition = number * 3;
+            //float addition = 3.0f;
+            _sizeRL = 2;
+            _sizeFT = 2;
+            _dataRL = new RFLOAT[_sizeRL];
+            _dataFT = new Complex[_sizeFT];
+            for(size_t i = 0; i < _sizeRL; i ++)
+            {
+                _dataRL[i] = (float)i + addition;
+            }
+
+            for(size_t i = 0; i < _sizeFT; i ++)
+            {
+                _dataFT[i].image = (float)(i * 2) + addition;
+                _dataFT[i].real =  (float)(i * 2) + addition;
+            }
+            //printf("default ImageBase() is called\n");
+        }
+
+        ImageBase(size_t srl, size_t sft)
+        {
+
+            //#pragma omp atomic
+            //number ++;
+            float addition = (float)(number * 3);
+            _sizeRL = srl;
+            _sizeFT = sft;
+            _dataRL = new RFLOAT[_sizeRL];
+            _dataFT = new Complex[_sizeFT];
+
+            for(size_t i = 0; i < _sizeRL; i ++)
+            {
+                _dataRL[i] = (float)i + addition;
+            }
+
+            for(size_t i = 0; i < _sizeFT; i ++)
+            {
+                _dataFT[i].image = (float)(i * 2) + addition;
+                _dataFT[i].real =  (float)(i * 2) + addition;;
+            }
+
+            //printf("ImageBase(srl, sft) is called\n");
+        }
+
+        ~ImageBase()
+        {
+            if(_dataRL != NULL)
+            {
+                delete[] _dataRL;
+                _dataRL = NULL;
+            }
+
+            if(_dataFT != NULL)
+            {
+                delete[] _dataFT;
+                _dataFT = NULL;
+            }
+            //printf("~ImageBase() is called\n");
+        }
+
+        size_t sizeRL()
+        {
+            return _sizeRL;
+        }
+        size_t sizeFT()
+        {
+            return _sizeFT;
+        }
+
+        inline const RFLOAT* dataRL() const
+        {
+            return _dataRL;
+        }
+
+        inline const Complex* dataFT() const
+        {
+            return _dataFT;
+        }
+
+};
+
+size_t ImageBase::number = 1;
+class Image:public ImageBase
+{
+    //protected:
+    public:
+        /**
+         * @brief number of columns of the image
+         */
+        long _nCol;
+
+        /**
+         * @brief number of rows of the the image
+         */
+        long _nRow;
+        
+        /**
+         * @brief number of columns of the image in Fourier space
+         */ 
+        long  _nColFT;
+
+        /**
+         * @brief the distances between the irregular voxel and four adjacent regular voxel, helpful for the interpolation in addFT operation
+         */ 
+        size_t _box[2][2];
+
+    public:
+        Image():ImageBase()
+        {
+            float addition = (float)(number * 3);
+            _nCol = 4;
+            _nRow = 4;
+            _nColFT = 4;
+
+            for(size_t i = 0; i < 2; i ++)
+            {
+                for(size_t j = 0; j < 2; j ++)
+                {
+                    _box[i][j] = 444 + addition;
+                }
+            }
+
+            //printf("Image() is called\n");
+    
+        }
+
+        Image(long nc, long nr, long ncft, size_t srl, size_t sft):ImageBase(srl, sft)
+        {
+            float addition = (float) (number * 3);
+            _nCol = nc;
+            _nRow = nr;
+            _nColFT = ncft;
+            for(size_t i = 0; i < 2; i ++)
+            {
+                for(size_t j = 0; j < 2; j ++)
+                {
+                    _box[i][j] = 888 + addition;
+                }
+            }
+
+            //printf("Image(nc, nr, ncft, srl, sft) is called\n");
+        }
+
+        Image& operator=(Image &other)
+        {
+            if(this == &other)
+            {
+                return *this;
+            }
+            
+
+            /**
+             *  Following assignment must be done manually, otherwise the value of all data field in this object will be zero 
+             */
+            this->_sizeRL = other._sizeRL;
+            this->_sizeFT = other._sizeFT;
+            this->_nCol = other._nCol;
+            this->_nRow = other._nRow;
+            this->_nColFT = other._nColFT;
+            this->_box[0][0] = other._box[0][0];
+            this->_box[0][1] = other._box[0][1];
+            this->_box[1][0] = other._box[1][0];
+            this->_box[1][1] = other._box[1][1];
+
+            if(_dataRL != NULL)
+            {
+                delete [] _dataRL;
+                size_t sizeRL = other.sizeRL();
+                _dataRL = new RFLOAT[sizeRL];
+                if(_dataRL == NULL)
+                {
+                    printf("Error: Memory alloc failed for _dataRL [%s, %d]\n", __FILE__, __LINE__);
+                    abort();
+                }
+                
+                if(other.dataRL() != NULL)
+                {
+                    memcpy(_dataRL, other.dataRL(), sizeRL * sizeof(RFLOAT));
+                }
+                
+            }
+
+            if(_dataFT != NULL)
+            {
+                delete [] _dataFT;
+                size_t sizeFT = other.sizeFT();
+                _dataFT = new Complex[sizeFT];
+                if(_dataFT == NULL)
+                {
+                    printf("Error: Memory alloc failed for _dataFT [%s, %d]\n", __FILE__, __LINE__);
+                    abort();
+                }
+                
+                if(other.dataFT() != NULL)
+                {
+                    memcpy(_dataFT, other.dataFT(), sizeFT * sizeof(Complex));
+                }
+                
+            }
+
+
+            return *this;
+
+        }
+        ~Image()
+        {
+            //printf("~Image() is called\n");
+
+        }
+
+        
+        /**
+         * @brief This function returns the number of columns of this image in real space.
+         *
+         * @return number of columns of this image in real space
+         */
+        inline long nColRL() const { return _nCol; };
+
+        /**
+         * @brief This function returns the number of rows of this image in real space.
+         *
+         * @return number of rows of this image in real space
+         */
+        inline long nRowRL() const { return _nRow; };
+
+        /**
+         * @brief This function returns the number of columns of this image in Fourier space.
+         *
+         * @return number of columns of this image in Fourier space
+         */
+        inline long nColFT() const { return _nColFT; };
+
+        /**
+         * @brief This function returns the number of rows of this image in Fourier space.
+         *
+         * @return number of rows of this image in Fourier space
+         */
+        inline long nRowFT() const { return _nRow; };
+
+        size_t (*getBox())[2]
+        {
+            return _box;
+        }
+
+
 };
 /*****************************************************************************************/
 
@@ -68,7 +324,7 @@ public:
 };
 typedef struct pack_state
 {
-	string packStatus; //这个作用很大，其某个值是判断是否需要替换的依据
+	string packStatus; //脮芒赂枚脳梅脫脙潞脺麓贸拢卢脝盲脛鲁赂枚脰碌脢脟脜脨露脧脢脟路帽脨猫脪陋脤忙禄禄碌脛脪脌戮脻
 	size_t packStartIndex;	
 	int refCnt;
 	bool isAvalilable;
@@ -79,7 +335,7 @@ typedef struct pack_t
 	size_t logicPackID;
 	size_t wayID;
 	size_t rowID;
-	string status;//这个status变量好像作用不大，将来需要去掉
+	string status;//脮芒赂枚status卤盲脕驴潞脙脧帽脳梅脫脙虏禄麓贸拢卢陆芦脌麓脨猫脪陋脠楼碌么
 
 }pack_t;
 
@@ -89,13 +345,13 @@ typedef struct thread_pack_info {
 	size_t lastPackWayID;
 	size_t lastPackStartIndex;
 	size_t lastPackLogicID;
-	string lastPackType;//这个lastPackType的作用好像也不大，将来需要去掉
+	string lastPackType;//脮芒赂枚lastPackType碌脛脳梅脫脙潞脙脧帽脪虏虏禄麓贸拢卢陆芦脌麓脨猫脪陋脠楼碌么
 
 	size_t prePackRowID;
 	size_t prePackWayID;
 	size_t prePackStartIndex;
 	size_t prePackLogicID;
-	string prePackType;//这个lastPackType的作用好像也不大，将来需要去掉
+	string prePackType;//脮芒赂枚lastPackType碌脛脳梅脫脙潞脙脧帽脪虏虏禄麓贸拢卢陆芦脌麓脨猫脪陋脠楼碌么
 }thread_pack_info_t;
 
 template <class TYPE>
@@ -114,7 +370,7 @@ public:
 	ThreadExitPostProcessor(VirtualMemory<TYPE>* mp)
 	{
 		/**
-		 *  这个赋值必须有，否则调用拷贝赋值函数的时候，本类的成员变量mp中数据项会出现各种未定义值
+		 *  脮芒赂枚赂鲁脰碌卤脴脨毛脫脨拢卢路帽脭貌碌梅脫脙驴陆卤麓赂鲁脰碌潞炉脢媒碌脛脢卤潞貌拢卢卤戮脌脿碌脛鲁脡脭卤卤盲脕驴mp脰脨脢媒戮脻脧卯禄谩鲁枚脧脰赂梅脰脰脦麓露篓脪氓脰碌
 		 */
 		this->mp = mp;
 	}
@@ -209,6 +465,11 @@ public:
 	{
 		return _packState;
 	}
+
+    pack_unit_type_t<TYPE> **getMemoryPool()
+    {
+        return _memoryPool;
+    }
 	void printPool()
 	{
 
@@ -237,61 +498,6 @@ public:
 		{
 			//printf("%lu:%s\n", it->first, it->second.c_str());
 
-		}
-	}
-	VirtualMemory(size_t wayNum, size_t waySize, size_t packSize)
-	{
-		_wayNum = wayNum;
-		_waySize = waySize;
-		_packSize = packSize;
-		_lastWayIndex = _wayNum - 1;
-		_threadNum = 1;
-
-		_memoryPool = new pack_unit_type_t<TYPE> * [_wayNum];
-		for (size_t i = 0; i < _wayNum; i++)
-		{
-			_memoryPool[i] = new pack_unit_type_t<TYPE>[_waySize];
-
-			for (size_t j = 0; j < _waySize; j++)
-			{
-				_memoryPool[i][j].packData = new TYPE[_packSize];
-				for (size_t k = 0; k < _packSize; k++)
-				{
-					//_memoryPool[i][j].packData[k] = -1;
-				}
-			}
-		}
-
-
-
-		_packState = new pack_state_t * [_wayNum];
-		for (size_t i = 0; i < _wayNum; i++)
-		{
-			_packState[i] = new pack_state_t[_waySize];
-			for (size_t j = 0; j < _waySize; j++)
-			{
-				_packState[i][j].packStatus = EMPTY;
-				_packState[i][j].packStartIndex = MAX_SCRIPT_INDEX;				
-				//_packState[i][j].lastOpThreadID = MAX_THREAD_ID_NUM;
-				//_packState[i][j].lastLockThreadID = MAX_THREAD_ID_NUM;
-				_packState[i][j].refCnt = 0;
-			}
-		}
-
-		_threadPackInfo = new thread_pack_info_t[_threadNum];
-		for (size_t i = 0; i < _threadNum; i++)
-		{
-			_threadPackInfo[i].lastPackRowID = MAX_SCRIPT_INDEX;
-			_threadPackInfo[i].lastPackWayID = MAX_SCRIPT_INDEX;
-			_threadPackInfo[i].lastPackStartIndex = MAX_SCRIPT_INDEX;
-			_threadPackInfo[i].lastPackLogicID = MAX_SCRIPT_INDEX;
-			_threadPackInfo[i].lastPackType = RAW;
-
-			_threadPackInfo[i].prePackWayID = MAX_SCRIPT_INDEX;
-			_threadPackInfo[i].prePackRowID = MAX_SCRIPT_INDEX;
-			_threadPackInfo[i].prePackStartIndex = MAX_SCRIPT_INDEX;
-			_threadPackInfo[i].prePackLogicID = MAX_SCRIPT_INDEX;
-			_threadPackInfo[i].prePackType = RAW;
 		}
 	}
 
@@ -421,8 +627,8 @@ public:
 		//size_t rowID = packIndex.rowID;
 		//FILE* fp = fopen(packDataFilename, "w");
 		///**
-		// * pack文件的格式：packStartIndex packData
-		// * 所以这个pack文件的前sizeof(size_t)个字节是这个pack数据的startIndex
+		// * pack脦脛录镁碌脛赂帽脢陆拢潞packStartIndex packData
+		// * 脣霉脪脭脮芒赂枚pack脦脛录镁碌脛脟掳sizeof(size_t)赂枚脳脰陆脷脢脟脮芒赂枚pack脢媒戮脻碌脛startIndex
 		// */
 
 		//TYPE* packData = _memoryPool[wayID][rowID].packData;
@@ -517,23 +723,337 @@ public:
 
     int getUnitSize()
     {
-        return sizeof(TYPE);
+        if(typeid(TYPE) == typeid(RFLOAT))
+        {
+            return sizeof(TYPE);
+        }
+        else if(typeid(TYPE) == typeid(Image))
+        {
+            int unitSize = 0;
+            unitSize += sizeof(size_t); // bytes size of _sizeRL
+            unitSize += sizeof(size_t); //bytes size of _sizeFT
+            unitSize += (MAX_IMAGE_BOX_SIZE * sizeof(Complex)); // bytes size of _dataRL or _dataFT
+            unitSize += sizeof(long); //bytes size of nCol
+            unitSize += sizeof(long); //bytes size of nRow
+            unitSize += sizeof(long); //nColFT
+            unitSize += (2 * 2 * sizeof(size_t));
+
+            return unitSize;
+
+        }
+        else
+        {
+            printf("Unexpected unit size in memory pool\n");
+            return sizeof(float);
+        }
+    }
+
+
+    /**
+     *  readBuffer points to a pack of memory pool, and the space of pack must be allocated in advanced
+     */
+    void readFromPackFile(TYPE *readBuffer, size_t sizeToRead, off_t readPos)
+    {
+        if(typeid(TYPE) == typeid(RFLOAT))
+        {
+            //printf("Reading type of float data from pack file\n");
+            pread(_fd, readBuffer, sizeToRead, readPos); 
+        }
+        else if(typeid(TYPE) == typeid(Image))
+        {
+            //printf("Reading type of Image data from pack file\n");
+            Image *images = (Image *)readBuffer; 
+            size_t currBytesToRead = 0;
+            size_t currReadPos = readPos;
+            for(size_t i = 0; i < _packSize; i ++)
+            {
+                
+                //printf("currReadPos = %lu\n", currReadPos);
+                /**
+                 *  read _sizeRL
+                 */
+                currBytesToRead = sizeof(size_t);
+                //size_t &sizeRL = images[i].sizeRL();
+                pread(_fd, &images[i]._sizeRL, currBytesToRead, currReadPos); 
+                currReadPos += currBytesToRead;
+
+                //printf("sizeRL = %lu\n", images[i]._sizeRL);
+
+                /**
+                 *  read _sizeFT
+                 */
+                currBytesToRead = sizeof(size_t);
+                //size_t &sizeFT = images[i].sizeFT();
+                pread(_fd, &images[i]._sizeFT, currBytesToRead, currReadPos);
+                currReadPos += currBytesToRead;
+                //printf("sizeFT = %lu\n", images[i]._sizeFT);
+
+                /**
+                 *  read flag [0/1] that indicates whether _dataRL is NULL
+                 */
+                currBytesToRead = sizeof(char);
+                char dataRLFlag = '#';
+                pread(_fd, &dataRLFlag, currBytesToRead, currReadPos);
+
+                /**
+                 *  dataSize is used to record how many bytes has been read from dataRL/dataFT field
+                 */
+                size_t dataSize = 0;
+                if(dataRLFlag == '1')
+                {
+                    
+                    /**
+                     *  Read data to _dataRL
+                     */
+                   currReadPos += currBytesToRead; 
+                   dataSize += currBytesToRead;
+                   size_t sizeRL = images[i].sizeRL(); 
+                   currBytesToRead = sizeRL * sizeof(RFLOAT);
+                   //RFLOAT *dataRL = images[i].dataRL();
+                   pread(_fd, images[i]._dataRL, currBytesToRead, currReadPos); 
+                   currReadPos += currBytesToRead;
+                   dataSize += currBytesToRead;
+                }
+                else if(dataRLFlag == '0')
+                {
+                    currReadPos += currBytesToRead;
+                    dataSize += currBytesToRead;
+                }
+                else
+                {
+                    //printf("Error: The value of dataRLFlag is invalid: %c(%d)\n", dataRLFlag, dataRLFlag);
+                    //abort();
+                }
+
+
+                /**
+                 *  read flag [0/1] that indicates whether _dataFT is NULL
+                 */
+                currBytesToRead = sizeof(char);
+                char dataFTFlag = '#';
+                pread(_fd, &dataFTFlag, currBytesToRead, currReadPos);
+                if(dataFTFlag == '1')
+                {
+                    
+                    /**
+                     *  Read data to _dataFT
+                     */
+                    currReadPos += currBytesToRead;
+                    dataSize += currBytesToRead;
+                    size_t sizeFT = images[i].sizeFT();
+                    currBytesToRead = sizeFT * sizeof(Complex);
+                    //RFLOAT *dataFT = images[i].dataFT();
+                    pread(_fd, images[i]._dataFT, currBytesToRead, currReadPos);
+                    currReadPos += currBytesToRead;
+                    dataSize += currBytesToRead;
+                }
+                else if(dataFTFlag == '0')
+                {
+                    currReadPos += currBytesToRead;
+                    dataSize += currBytesToRead;
+                }
+                else
+                {
+                    //printf("The value of dataFTFlag is invalid: %c(%d)\n", dataFTFlag, dataFTFlag);
+                }
+
+                currReadPos -= dataSize;
+                currReadPos += MAX_IMAGE_BOX_SIZE * sizeof(Complex);
+                /**
+                 *  Read _ncol
+                 */
+                currBytesToRead = sizeof(long);
+                //long &nCol = images[i].nColRL();
+                pread(_fd, &images[i]._nCol, currBytesToRead, currReadPos);
+                currReadPos += currBytesToRead;
+
+                /**
+                 *  Read _nRow
+                 */
+                currBytesToRead = sizeof(long);
+                //long &nRow = images[i].nRowRL();
+                pread(_fd, &images[i]._nRow, currBytesToRead, currReadPos);
+                currReadPos += currBytesToRead;
+
+
+                /**
+                 *  read _nColFT
+                 */
+                currBytesToRead = sizeof(long);
+                //long &nColFT = images[i].nColFT();
+                pread(_fd, &images[i]._nColFT, currBytesToRead, currReadPos);
+                currReadPos += currBytesToRead;
+
+                /**
+                 *  read box
+                 */
+                currBytesToRead = 2 * 2* sizeof(size_t);
+                size_t (*box)[2] = images[i].getBox();
+                pread(_fd, box, currBytesToRead, currReadPos);
+                currReadPos += currBytesToRead;
+
+
+                /**
+                 *  read box[0][0]
+                 */
+                //currBytesToRead = sizeof(size_t);
+                //pread(_fd, &images[i]._box[0][0], currBytesToRead, currReadPos);
+                //currReadPos += currBytesToRead;
+                /**
+                 *  read box[0][1]
+                 */
+                //currBytesToRead = sizeof(size_t);
+                //pread(_fd, &images[i]._box[0][1], currBytesToRead, currReadPos);
+                //currReadPos += currBytesToRead;
+
+                /**
+                 *  read box[1][0]
+                 */
+                //currBytesToRead = sizeof(size_t);
+                //pread(_fd, &images[i]._box[1][0], currBytesToRead, currReadPos);
+                //currReadPos += currBytesToRead;
+
+                /**
+                 *  read box[1][1]
+                 */
+                //currBytesToRead = sizeof(size_t);
+                //pread(_fd, &images[i]._box[1][1], currBytesToRead, currReadPos);
+                //currReadPos += currBytesToRead;
+
+
+            }
+        }
+
+
     }
 
     void writeToPackFile(TYPE* packData, size_t sizeToWrite, off_t writePos)
     {
-        if(typeid(TYPE) == typeid(float))
+        if(typeid(TYPE) == typeid(RFLOAT))
         {
-            printf("The type of item in pack is float\n");
-        }
-        else if(typeid(TYPE) == typeid(Complex))
-        {
-            printf("The type of item in pack is Complex\n");
+            //printf("The type of item in pack is RFLOAT\n");
+            pwrite(_fd, packData, sizeToWrite, writePos);
         }
         else if(typeid(TYPE) == typeid(Image))
         {
-            printf("The type of item in pack is Image\n");
+            //printf("The type of item in pack is Image\n");
+
+            /**
+             * Layout of each image in pack file
+             *  _sizeRL _sizeFT '0/1' _dataRL[0,1, .._sizeRL-1] '0/1' _dataFT[0, 1, .., _sizeFT - 1] _nCol _nRow _nColFT box[2][2]
+             */
+            Image *images = (Image *)packData;
+            off_t currWritePos = writePos;
+            size_t currSizeToWrite = 0;
+            for(size_t i = 0; i < _packSize; i ++)
+            {
+                currSizeToWrite = sizeof(size_t);
+                
+                size_t sizeRL = images[i].sizeRL();
+                ssize_t writeBytes = pwrite(_fd, &sizeRL, currSizeToWrite, currWritePos);
+                //printf("WriteBytes = %lu for the sizeRL = %lu\n", writeBytes, sizeRL);
+                currWritePos += currSizeToWrite;
+
+                currSizeToWrite = sizeof(size_t);
+                size_t sizeFT = images[i].sizeFT();
+                pwrite(_fd, &sizeFT, currSizeToWrite, currWritePos);
+                currWritePos += currSizeToWrite;
+
+                currSizeToWrite = sizeof(RFLOAT) * images[i].sizeRL();
+                const RFLOAT *dataRL = images[i].dataRL();
+                size_t dataSize = 0;
+                if(dataRL != NULL)
+                {
+                    char flag = '1';
+                    pwrite(_fd, &flag, sizeof(char), currWritePos);
+                    currWritePos += 1;
+                    dataSize += 1;
+                    pwrite(_fd, dataRL, currSizeToWrite, currWritePos);
+                    currWritePos += currSizeToWrite;
+                    dataSize += currSizeToWrite;
+                }
+                else //we only write a flag when dataRL == NULL
+                {
+                    char flag = '0';
+                    pwrite(_fd, &flag, sizeof(char), currWritePos);
+                    currWritePos += 1;
+                    dataSize += 1;
+                }
+
+
+                currSizeToWrite = sizeof(Complex) * images[i].sizeFT();
+                const Complex *dataFT = images[i].dataFT();
+                if(dataFT != NULL)
+                {
+                    char flag = '1';
+                    pwrite(_fd, &flag, sizeof(char), currWritePos);
+                    currWritePos += 1;
+                    dataSize += 1;
+                    pwrite(_fd, dataFT, currSizeToWrite, currWritePos);
+                    currWritePos += currSizeToWrite;
+                    dataSize += currSizeToWrite;
+                }
+                else //we only write a flag when dataFT == NULL
+                {
+                    char flag = '0';
+                    pwrite(_fd, &flag, sizeof(char), currWritePos);
+                    currWritePos += 1;
+                    dataSize += 1;
+                }
+
+                //we alloc a fixed space (MAX_IMAGE_BOX_SIZE * sizeof(Complex)) for writing _dataRL or _dataFT, so 
+                //after writing _dataRL or _dataFT, we need to assign currWritePos to a fixed postion
+                currWritePos -= dataSize;
+                currWritePos  += MAX_IMAGE_BOX_SIZE * sizeof(Complex);
+
+                currSizeToWrite = sizeof(long);
+                long nColRL = images[i].nColRL();
+                pwrite(_fd, &nColRL, currSizeToWrite, currWritePos);
+                currWritePos += currSizeToWrite;
+
+                currSizeToWrite = sizeof(long);
+                long nRowRL = images[i].nRowRL();
+                pwrite(_fd, &nRowRL, currSizeToWrite, currWritePos);
+                currWritePos += currSizeToWrite;
+
+                currSizeToWrite = sizeof(long);
+                long nColFT = images[i].nColFT();
+                pwrite(_fd, &nColFT, currSizeToWrite, currWritePos);
+                currWritePos += currSizeToWrite;
+
+                currSizeToWrite = 2 * 2 * sizeof(size_t);
+                size_t (*box)[2] = images[i].getBox();
+                pwrite(_fd, box, currSizeToWrite, currWritePos); 
+                currWritePos += currSizeToWrite;
+                
+                ////write box[0][0]
+                //currSizeToWrite = sizeof(size_t);
+                //pwrite(_fd, &images[i]._box[0][0], currSizeToWrite, currWritePos);
+                //currWritePos += currSizeToWrite;
+
+                ////write box[0][1]
+                //currSizeToWrite = sizeof(size_t);
+                //pwrite(_fd, &images[i]._box[0][1], currSizeToWrite, currWritePos);
+                //currWritePos += currSizeToWrite;
+
+                ////write box[1][0]
+                //currSizeToWrite = sizeof(size_t);
+                //pwrite(_fd, &images[i]._box[1][0], currSizeToWrite, currWritePos);
+                //currWritePos += currSizeToWrite;
+
+                ////write box[1][1]
+                //currSizeToWrite = sizeof(size_t);
+                //pwrite(_fd, &images[i]._box[1][1], currSizeToWrite, currWritePos);
+                //currWritePos += currSizeToWrite;
+            }
         }
+    }
+
+    
+
+    void loadFromPackFile(size_t sizeToRead, off_t readPos)
+    {
+    
     }
     void writeAndLoadPackWithSingleFile(const pack_t &pack, const size_t &i)
     {
@@ -543,16 +1063,19 @@ public:
         size_t currLogicID = _packState[wayID][rowID].packStartIndex / _packSize;
 
         off_t writePosInBytes = currLogicID * _packSize * getUnitSize();  
+
         size_t sizeToWrite = _packSize * getUnitSize();
-        pwrite(_fd, _memoryPool[wayID][rowID].packData, sizeToWrite, writePosInBytes); 
-        //fsync(_fd);
-        
+        //pwrite(_fd, _memoryPool[wayID][rowID].packData, sizeToWrite, writePosInBytes); 
+        writeToPackFile(_memoryPool[wayID][rowID].packData, sizeToWrite, writePosInBytes);
+        printf("writePosInBytes = %lu, sizeToWrite = %lu, i = %lu\n", writePosInBytes, sizeToWrite, i);
 
         size_t logicPackID = pack.logicPackID;
         size_t readPosInBytes = logicPackID * _packSize * getUnitSize();
         size_t sizeToRead = _packSize * getUnitSize();
-        pread(_fd, _memoryPool[wayID][rowID].packData, sizeToRead, readPosInBytes); 
-        //printf("thread %lu end to read file\n", threadID);
+        //pread(_fd, _memoryPool[wayID][rowID].packData, sizeToRead, readPosInBytes); 
+        readFromPackFile(_memoryPool[wayID][rowID].packData, sizeToRead, readPosInBytes);
+        printf("readPosInBytes = %lu, sizeToRead = %lu, i = %lu\n", readPosInBytes, sizeToRead, i);
+
 
         size_t packNewStartIndex = (i / _packSize) * _packSize;
         _packState[wayID][rowID].packStartIndex = packNewStartIndex;
@@ -572,36 +1095,36 @@ public:
 		size_t threadID = omp_get_thread_num();
 		char packDataFilename[FILE_NAME_MAX_LEN];
 		memset(packDataFilename, '\0', FILE_NAME_MAX_LEN);
-		/* 这边构造文件名的时候，将来需要把Json文件中的outputdir给加上 */
+		/* 脮芒卤脽鹿鹿脭矛脦脛录镁脙没碌脛脢卤潞貌拢卢陆芦脌麓脨猫脪陋掳脩Json脦脛录镁脰脨碌脛outputdir赂酶录脫脡脧 */
 		snprintf(packDataFilename, FILE_NAME_MAX_LEN, "p%d_i%lu_w%lu_r%lu.dat", getRank(), _packState[packIndex.wayID][packIndex.rowID].packStartIndex, packIndex.wayID, packIndex.rowID);
 		writePackDataToDisk(packDataFilename, packIndex);
 
 		/**
-		* 将pack中的数据写到磁盘中以后，需要在一个全局数组中记录这个被写到磁盘pack的数据对应的文件名和这个pack对应的起始下标的映射关系
-		* 这样将来才能够找回来，并load到pack中
+		* 陆芦pack脰脨碌脛脢媒戮脻脨麓碌陆麓脜脜脤脰脨脪脭潞贸拢卢脨猫脪陋脭脷脪禄赂枚脠芦戮脰脢媒脳茅脰脨录脟脗录脮芒赂枚卤禄脨麓碌陆麓脜脜脤pack碌脛脢媒戮脻露脭脫娄碌脛脦脛录镁脙没潞脥脮芒赂枚pack露脭脫娄碌脛脝冒脢录脧脗卤锚碌脛脫鲁脡盲鹿脴脧碌
+		* 脮芒脩霉陆芦脌麓虏脜脛脺鹿禄脮脪禄脴脌麓拢卢虏垄load碌陆pack脰脨
 		*
-		* 好像只要在_packState中添加一个用于保存文件名的字符串变量就可以了，错错错
-		* 这个只能再通过维护一个全局数组来进行处理，数组的下标是startIndex,对应的值是startIndex对应的pack数据的文件名
+		* 潞脙脧帽脰禄脪陋脭脷_packState脰脨脤铆录脫脪禄赂枚脫脙脫脷卤拢麓忙脦脛录镁脙没碌脛脳脰路没麓庐卤盲脕驴戮脥驴脡脪脭脕脣拢卢麓铆麓铆麓铆
+		* 脮芒赂枚脰禄脛脺脭脵脥篓鹿媒脦卢禄陇脪禄赂枚脠芦戮脰脢媒脳茅脌麓陆酶脨脨麓娄脌铆拢卢脢媒脳茅碌脛脧脗卤锚脢脟startIndex,露脭脫娄碌脛脰碌脢脟startIndex露脭脫娄碌脛pack脢媒戮脻碌脛脦脛录镁脙没
 		*/
 
 		/**
-		*  下面这个存法有点问题，应该是把写的磁盘的pack的数据块的起始index保存到_pack2File中吧？那怎么拿到存到当前写入磁盘的pack的对应的startIndex？这个数据应该是保存在了_packState中
+		*  脧脗脙忙脮芒赂枚麓忙路篓脫脨碌茫脦脢脤芒拢卢脫娄赂脙脢脟掳脩脨麓碌脛麓脜脜脤碌脛pack碌脛脢媒戮脻驴茅碌脛脝冒脢录index卤拢麓忙碌陆_pack2File脰脨掳脡拢驴脛脟脭玫脙麓脛脙碌陆麓忙碌陆碌卤脟掳脨麓脠毛麓脜脜脤碌脛pack碌脛露脭脫娄碌脛startIndex拢驴脮芒赂枚脢媒戮脻脫娄赂脙脢脟卤拢麓忙脭脷脕脣_packState脰脨
 		*/
 		size_t startIndex = _packState[packIndex.wayID][packIndex.rowID].packStartIndex;
 		_pack2File[startIndex] = packDataFilename;
 
 
 		/**
-		*  保存了pack到磁盘文件的映射信息后，接下来需要从磁盘中load进来当前的unpackIndex对应的pack文件
-		*  怎么保证map里面有对应key的文件呢？难道是只要能够进入到这个critical块里面，那么对应文件名的序列化文件就会一定存在？
+		*  卤拢麓忙脕脣pack碌陆麓脜脜脤脦脛录镁碌脛脫鲁脡盲脨脜脧垄潞贸拢卢陆脫脧脗脌麓脨猫脪陋麓脫麓脜脜脤脰脨load陆酶脌麓碌卤脟掳碌脛unpackIndex露脭脫娄碌脛pack脦脛录镁
+		*  脭玫脙麓卤拢脰陇map脌茂脙忙脫脨露脭脫娄key碌脛脦脛录镁脛脴拢驴脛脩碌脌脢脟脰禄脪陋脛脺鹿禄陆酶脠毛碌陆脮芒赂枚critical驴茅脌茂脙忙拢卢脛脟脙麓露脭脫娄脦脛录镁脙没碌脛脨貌脕脨禄炉脦脛录镁戮脥禄谩脪禄露篓麓忙脭脷拢驴
 		*/
 
 		size_t packNewStartIndex = (i / _packSize) * _packSize;
 		string packFilename = _pack2File[packNewStartIndex];
 
 		/**
-		*  如果这个unpackIndex是对应的pack是第一次被访问，则说明在此之前，这个unpackIndex对应的pack数据从未被写入到磁盘中去过，因此这个unpackIndex对应的startIndex就没有对应的序列化文件名
-		*  因此需要判断一下，否则会出segment fault错误
+		*  脠莽鹿没脮芒赂枚unpackIndex脢脟露脭脫娄碌脛pack脢脟碌脷脪禄麓脦卤禄路脙脦脢拢卢脭貌脣碌脙梅脭脷麓脣脰庐脟掳拢卢脮芒赂枚unpackIndex露脭脫娄碌脛pack脢媒戮脻麓脫脦麓卤禄脨麓脠毛碌陆麓脜脜脤脰脨脠楼鹿媒拢卢脪貌麓脣脮芒赂枚unpackIndex露脭脫娄碌脛startIndex戮脥脙禄脫脨露脭脫娄碌脛脨貌脕脨禄炉脦脛录镁脙没
+		*  脪貌麓脣脨猫脪陋脜脨露脧脪禄脧脗拢卢路帽脭貌禄谩鲁枚segment fault麓铆脦贸
 		*/
 		if (packFilename != "")
 		{
@@ -609,14 +1132,14 @@ public:
 		}
 
 		/**
-		*  下面这个赋值很重要，因为load了新的pack之后，新pack的start值就会生变化，因此， 这边需要更新_packState中的startIndex值以及packStatus的值，建议是将packStatus的值设置成 load_from_disk
+		*  脧脗脙忙脮芒赂枚赂鲁脰碌潞脺脰脴脪陋拢卢脪貌脦陋load脕脣脨脗碌脛pack脰庐潞贸拢卢脨脗pack碌脛start脰碌戮脥禄谩脡煤卤盲禄炉拢卢脪貌麓脣拢卢 脮芒卤脽脨猫脪陋赂眉脨脗_packState脰脨碌脛startIndex脰碌脪脭录掳packStatus碌脛脰碌拢卢陆篓脪茅脢脟陆芦packStatus碌脛脰碌脡猫脰脙鲁脡 load_from_disk
 		*/
 		_packState[packIndex.wayID][packIndex.rowID].packStartIndex = packNewStartIndex;
 		_packState[packIndex.wayID][packIndex.rowID].packStatus = LOAD_FROM_DISK;
 
 
 		/**
-		*  这里同样需要更新_threadPackInfo中的last相关的信息
+		*  脮芒脌茂脥卢脩霉脨猫脪陋赂眉脨脗_threadPackInfo脰脨碌脛last脧脿鹿脴碌脛脨脜脧垄
 		*/
 		_threadPackInfo[threadID].lastPackType = LOAD_FROM_DISK;
 		_threadPackInfo[threadID].lastPackStartIndex = packNewStartIndex;
@@ -654,7 +1177,7 @@ public:
 			pack.rowID = _threadPackInfo[threadID].lastPackRowID;
 			pack.wayID = _threadPackInfo[threadID].lastPackWayID;
 			pack.status = THREAD_LAST_PACK_REUSED;
-			_threadPackInfo[threadID].lastPackType = THREAD_LAST_PACK_REUSED; /*这个有必要吗？？？*/
+			_threadPackInfo[threadID].lastPackType = THREAD_LAST_PACK_REUSED; /*脮芒赂枚脫脨卤脴脪陋脗冒拢驴拢驴拢驴*/
 			_threadPackInfo[threadID].lastPackLogicID = logicPackID;
 			return;
 		}
@@ -753,7 +1276,7 @@ public:
 				}
 			}
 			/**
-			 *  if we finish walking through all the ways of rowID, and can not find a available pack（indicated by bool variable packAvalilable）,
+			 *  if we finish walking through all the ways of rowID, and can not find a available pack拢篓indicated by bool variable packAvalilable拢漏,
 			 *  then we directly assign the pack in  last way of rowID to the unpackIndex, and set the status of current pack to NEED_TO_BE_REPLACED
 			 */
 			if (!packAvailable)
@@ -781,7 +1304,7 @@ public:
 	{
 		size_t threadID = omp_get_thread_num();
 		pack_t currPack;
-		/*这个函数内部会保存_threadPackInfo[threadID]相关的信息*/
+		/*脮芒赂枚潞炉脢媒脛脷虏驴禄谩卤拢麓忙_threadPackInfo[threadID]脧脿鹿脴碌脛脨脜脧垄*/
 		getPackByUnpackIndex(currPack, i);
 
 		/*size_t threadPrePackWayID = _threadPackInfo[threadID].prePackWayID;
