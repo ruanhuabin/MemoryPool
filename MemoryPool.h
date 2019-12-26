@@ -523,9 +523,7 @@ public:
         char packFilename[FILE_NAME_MAX_LEN];
         memset(packFilename, '\0', sizeof(packFilename));
         sprintf(packFilename, "p%d_%s.dat", _rank, packFileIdentifier); 
-        //printf("Start to open the file: %s\n", packFilename);
         _fd = open(packFilename, O_RDWR | O_CREAT | O_LARGEFILE, 00644);
-        //printf("End to open the file: %s\n", packFilename);
         if(_fd == - 1)
         {
             fprintf(stderr, "Error to open file pack file\n %s", strerror(errno));
