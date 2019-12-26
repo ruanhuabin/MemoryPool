@@ -212,6 +212,63 @@ class Image:public ImageBase
             //printf("Image(nc, nr, ncft, srl, sft) is called\n");
         }
 
+        Image(Image &other)
+        {
+            /**
+             *  Following assignment must be done manually, otherwise the value of all data field in this object will be zero 
+             */
+            this->_sizeRL = other._sizeRL;
+            this->_sizeFT = other._sizeFT;
+            this->_nCol = other._nCol;
+            this->_nRow = other._nRow;
+            this->_nColFT = other._nColFT;
+            this->_box[0][0] = other._box[0][0];
+            this->_box[0][1] = other._box[0][1];
+            this->_box[1][0] = other._box[1][0];
+            this->_box[1][1] = other._box[1][1];
+
+            if(_dataRL != NULL)
+            {
+                delete [] _dataRL;
+                size_t sizeRL = other.sizeRL();
+                //printf("sizeRL = %lu\n", sizeRL);
+                _dataRL = new RFLOAT[sizeRL];
+                if(_dataRL == NULL)
+                {
+                    printf("Error: Memory alloc failed for _dataRL [%s, %d]\n", __FILE__, __LINE__);
+                    abort();
+                }
+                
+                if(other.dataRL() != NULL)
+                {
+                    memcpy(_dataRL, other.dataRL(), sizeRL * sizeof(RFLOAT));
+                }
+                
+            }
+
+            if(_dataFT != NULL)
+            {
+                delete [] _dataFT;
+                size_t sizeFT = other.sizeFT();
+                _dataFT = new Complex[sizeFT];
+                if(_dataFT == NULL)
+                {
+                    printf("Error: Memory alloc failed for _dataFT [%s, %d]\n", __FILE__, __LINE__);
+                    abort();
+                }
+                
+                if(other.dataFT() != NULL)
+                {
+                    memcpy(_dataFT, other.dataFT(), sizeFT * sizeof(Complex));
+                }
+                
+            }
+
+        }
+
+
+
+
         Image& operator=(Image &other)
         {
             if(this == &other)
@@ -237,6 +294,7 @@ class Image:public ImageBase
             {
                 delete [] _dataRL;
                 size_t sizeRL = other.sizeRL();
+                //printf("sizeRL = %lu\n", sizeRL);
                 _dataRL = new RFLOAT[sizeRL];
                 if(_dataRL == NULL)
                 {
@@ -373,6 +431,7 @@ public:
 	{
         //printf("thread %lu is entering ThreadExitPostProcessor(.....)\n", omp_get_thread_num());
 		this->mp = mp;
+        //printf("thread %lu is run out of ThreadExitPostProcessor(.....) mp address = %p\n", omp_get_thread_num(), mp);
 	}
 
     /**
@@ -412,6 +471,7 @@ public:
 		*/
 		if (wayID != MAX_SCRIPT_INDEX && rowID != MAX_SCRIPT_INDEX)
 		{
+            //printf("wayID = %lu, rowID = %lu\n", wayID, rowID);
 			#pragma omp atomic
 			packState[wayID][rowID].refCnt--;
 		}
@@ -506,6 +566,7 @@ public:
 
 	VirtualMemory(size_t wayNum, size_t waySize, size_t packSize, int threadNum, const char *packFileIdentifier="file")
 	{
+        //printf("VirtualMemory(....) is called\n");
 		_threadNum = threadNum;	
 
 		_wayNum = wayNum;
@@ -581,6 +642,8 @@ public:
 			_threadPackInfo[i].prePackLogicID = MAX_SCRIPT_INDEX;
 			_threadPackInfo[i].prePackType = RAW;
 		}
+
+        //printf("VirtualMemory(....) is end called\n");
 	}
 
 	int getRank()
@@ -593,18 +656,19 @@ public:
 		_rank = rank;
 	}
 
-	VirtualMemory()
-	{
-		_wayNum = 4;
-		_waySize = 10;
-		_packSize = 8;
-		_rank = 0;
-		_threadNum = 2;
-		VirtualMemory(_wayNum, _waySize, _packSize);
-	}
+	//VirtualMemory()
+	//{
+	//    _wayNum = 4;
+	//    _waySize = 10;
+	//    _packSize = 8;
+	//    _rank = 0;
+	//    _threadNum = 2;
+	//    VirtualMemory(_wayNum, _waySize, _packSize);
+	//}
 
 	~VirtualMemory()
 	{
+        //printf("~VirtualMemory is called\n");
 		for (size_t i = 0; i < _wayNum; i++)
 		{
 			for (size_t j = 0; j < _waySize; j++)
@@ -647,7 +711,7 @@ public:
 
         for(size_t i = 0; i < _waySize; i ++)
         {
-            omp_destroy_lock(&_rowLock[i]);
+            //omp_destroy_lock(&_rowLock[i]);
         }
         if(_rowLock != NULL)
         {
@@ -656,6 +720,7 @@ public:
         }
 
         close(_fd);
+        //printf("~VirtualMemory is end called\n");
 	}
 
 	void writePackDataToDisk(char* packDataFilename, const pack_t& packIndex)

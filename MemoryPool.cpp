@@ -173,6 +173,7 @@ void checkImageResult(const Image *images, VirtualMemory<Image> &mpi, const size
     {
         Image currImage = mpi[i];
         int result = cmpImage(images[i], currImage);
+        //int result = cmpImage(images[i], mpi[i]);
         if(result != 0)
         {
             printf("expected image is differrent from image in memory pool, image index is: %lu\n", i);
@@ -540,7 +541,7 @@ int main(int argc, char* argv[])
     printf("Start to check image result\n");
     checkImageResult(expectImages, imagePool, totalImageNum);
     delete[] expectImages;
-    return 0;
+    //return 0;
 
 
 
